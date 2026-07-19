@@ -1,0 +1,20 @@
+{
+  "name": "simply360-reference-google-drive",
+  "version": "0.0.0",
+  "private": false,
+  "license": "Apache-2.0",
+  "description": "Public reference proof for Simply360 FILE_SOURCE / FILE_DESTINATION via Google Picker and the drive.file scope. Uses only public platform boundaries.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "~5.7.2"
+  }
+}

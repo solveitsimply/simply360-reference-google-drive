@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Dev-only GitHub OIDC deployment roles for the Google Drive reference stack.
+
+Parameters:
+  GitHubOidcProviderArn:
+    Type: String
+    AllowedPattern: '^arn:aws:iam::[0-9]{12}:oidc-provider/token\.actions\.githubusercontent\.com$'
+  ArtifactBucketArn:
+    Type: String
+    AllowedPattern: '^arn:aws:s3:::simply360-reference-drive-dev-[a-z0-9-]+$'
+  HostedZoneId:
+    Type: String
+    AllowedPattern: '^Z[A-Z0-9]+$'
+  CertificateArn:
+    Type: String
+    AllowedPattern: '^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[0-9a-f-]+$'
+  GoogleSecretArn:
+    Type: String
+    AllowedPattern: '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:simply360/reference-drive/dev/google-[A-Za-z0-9/_+=.@-]+$'
+  Simply360SecretArn:
+    Type: String
+    AllowedPattern: '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:simply360/reference-drive/dev/simply360-[A-Za-z0-9/_+=.@-]+$'
+
+Resources:
+  StackExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: simply360-reference-drive-dev-stack-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudformation.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ManageExactDevStackResources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - apigateway:DELETE
+                  - apigateway:GET
+                  - apigateway:PATCH
+                  - apigateway:POST
+                  - apigateway:PUT
+                Resource: arn:aws:apigateway:us-east-1::/*
+              - Effect: Allow
+                Action:
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:PutMetricAlarm
+                Resource: arn:aws:cloudwatch:us-east-1:*:alarm:Simply360ReferenceGoogleDriveDev-*
+              - Effect: Allow
+                Action:
+                  - dynamodb:CreateTable
+                  - dynamodb:DeleteTable
+                  - dynamodb:DescribeTable
+                  - dynamodb:TagResource
+                  - dynamodb:UntagResource
+                  - dynamodb:UpdateContinuousBackups
+                  - dynamodb:UpdateTable
+                  - dynamodb:UpdateTimeToLive
+                Resource:
+                  - arn:aws:dynamodb:us-east-1:*:table/Simply360ReferenceGoogleDriveDev-*
+                  - arn:aws:dynamodb:us-east-1:*:table/Simply360ReferenceGoogleDriveDev-*/index/*
+              - Effect: Allow
+                Action:
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:PutRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                Resource: arn:aws:events:us-east-1:*:rule/Simply360ReferenceGoogleDriveDev-*
+              - Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetRuntimeManagementConfig
+                  - lambda:ListTags
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutRuntimeManagementConfig
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: arn:aws:lambda:us-east-1:*:function:Simply360ReferenceGoogleDriveDev-*
+              - Effect: Allow
+                Action:
+                  - lambda:CreateEventSourceMapping
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:GetEventSourceMapping
+                  - lambda:UpdateEventSourceMapping
+                Resource: '*'
+                Condition:
+                  ArnLike:
+                    lambda:FunctionArn: arn:aws:lambda:us-east-1:*:function:Simply360ReferenceGoogleDriveDev-*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DeleteRetentionPolicy
+                  - logs:PutRetentionPolicy
+                Resource:
+                  - arn:aws:logs:us-east-1:*:log-group:/aws/lambda/Simply360ReferenceGoogleDriveDev-*
+                  - arn:aws:logs:us-east-1:*:log-group:/aws/apigateway/Simply360ReferenceGoogleDriveDev*
+              - Effect: Allow
+                Action:
+                  - route53:ChangeResourceRecordSets
+                Resource: !Sub arn:aws:route53:::hostedzone/${HostedZoneId}
+              - Effect: Allow
+                Action:
+                  - route53:GetChange
+                Resource: arn:aws:route53:::change/*
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetResourcePolicy
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !Ref GoogleSecretArn
+                  - !Ref Simply360SecretArn
+              - Effect: Allow
+                Action:
+                  - acm:DescribeCertificate
+                Resource: !Ref CertificateArn
+              - Effect: Allow
+                Action:
+                  - sqs:CreateQueue
+                  - sqs:DeleteQueue
+                  - sqs:GetQueueAttributes
+                  - sqs:ListQueueTags
+                  - sqs:SetQueueAttributes
+                  - sqs:TagQueue
+                  - sqs:UntagQueue
+                Resource: arn:aws:sqs:us-east-1:*:Simply360ReferenceGoogleDriveDev-*
+              - Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                Resource: arn:aws:iam::*:role/Simply360ReferenceGoogleDriveDev-*
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: simply360-reference-drive-dev-github-deploy
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Federated: !Ref GitHubOidcProviderArn}
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: repo:solveitsimply/simply360-reference-google-drive:environment:dev
+      Policies:
+        - PolicyName: DeployExactDevStack
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:UpdateStack
+                Resource: arn:aws:cloudformation:us-east-1:*:stack/Simply360ReferenceGoogleDriveDev/*
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt StackExecutionRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub ${ArtifactBucketArn}/simply360-reference-google-drive/*
+
+Outputs:
+  GitHubDeployRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
+  StackExecutionRoleArn:
+    Value: !GetAtt StackExecutionRole.Arn

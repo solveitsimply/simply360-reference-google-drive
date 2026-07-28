@@ -15,10 +15,12 @@ file content for advertising or model training, or move customer data during
 the dev proof.
 
 Credentials, authorization codes, signed URLs, notification tokens, and file
-bodies are excluded from telemetry and evidence. Credentials live only in the
-approved secret/state stores. Uninstall requires an explicit export/deletion
-decision; delete clears app-managed link/selection state, while retain keeps
-only the disclosed metadata marked revoked.
+bodies are excluded from telemetry and evidence. Provider client secrets live
+only in Secrets Manager; per-installation OAuth credentials live in encrypted
+installation state. OAuth state and notification tokens are persisted only as
+digests. Uninstall requires an explicit export/deletion decision; delete clears
+app-managed link/selection state, while retain keeps only the disclosed
+metadata marked revoked.
 
 This file is developer-proof documentation, not published legal terms.
 Production use and legal publication require separate approval.

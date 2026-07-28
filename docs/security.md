@@ -9,6 +9,10 @@
   mix-up and replay fail closed.
 - Every state, selection, link, upload, cursor, notification channel, and
   telemetry event is installation-scoped.
+- The API's OAuth lookup table stores only a state digest. OAuth start
+  responses are deliberately excluded from the general idempotency result
+  table. Drive channel tokens are compared at ingress and only their digest is
+  stored or sent to the worker.
 - A Google Picker result is not trusted by itself; the runtime reads the exact
   object under the granted credential and compares ID, name, MIME type, kind,
   and trash state.
@@ -25,6 +29,9 @@
   control-plane, database, VPC, or SSM authority.
 - The Picker key is browser/referrer and API restricted; OAuth and Simply360
   client secrets stay in the reference stack's secret manager.
+- Per-installation Google and Simply360 OAuth credentials require durable,
+  encrypted DynamoDB state for restart-safe work. IAM limits that table to the
+  two exact functions; state is never logged or emitted as telemetry.
 
 ## Input and resource controls
 
@@ -45,6 +52,11 @@
   cursors, channels, and pending uploads are cleared before another account
   can be connected;
 - scope widening fails closed.
+
+The public lifecycle occurrence variants are vendored byte-for-byte from the
+authoritative generated public schema with pinned source and selected-variant
+SHA-256 digests. HMAC v2 verification authenticates the raw body before schema
+parsing and accepts at most two explicitly named rotation keys.
 
 ## Failure and cleanup
 

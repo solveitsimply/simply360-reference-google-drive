@@ -4,7 +4,8 @@ Public-boundary reference implementation of Simply360 `FILE_SOURCE` and
 `FILE_DESTINATION` using Google Picker and Google's non-sensitive
 `drive.file` scope.
 
-Status: **mock-ready; live provider acceptance blocked on owner provisioning.**
+Status: **deployable-dev source complete; live provider acceptance blocked on
+owner provisioning and the unpublished Simply360 lifecycle client.**
 The complete lifecycle passes against deterministic local Google Drive and
 Simply360 doubles. The real Google REST adapter and Simply360 public file API
 adapter are implemented. No Google project, OAuth client, deployed runtime, or
@@ -75,6 +76,14 @@ published rather than guessing an internal route.
 There are no runtime dependencies, Simply360 internal imports, database/VPC
 access, SSM credentials, or monorepo filesystem references.
 
+The deployable seam uses Node's built-in HTTPS and cryptography for AWS
+Signature V4, a strict API Gateway router, optimistic DynamoDB installation
+state, leased idempotency, a durable outbox, and SQS worker batches. OAuth
+state and Drive notification tokens are represented durably only by SHA-256
+digests. The handler intentionally fails closed for setup receipts, provider
+health, upgrade receipts, and uninstall receipts until the public Simply360
+lifecycle package is published; it does not invent private endpoints.
+
 ## Local proof
 
 Node 22 is required.
@@ -133,7 +142,8 @@ Until those steps are completed, the truthful remaining blockers are:
    available;
 3. `@simply360/integration-sdk`, `@simply360/blueprint-sdk`, and the public SDK
    are unpublished and npm authentication is interactive;
-4. the dedicated NonProd runtime has not been provisioned or deployed;
+4. the reviewed dev stack and OIDC roles in [`infra/`](./infra/) have not been
+   provisioned or deployed;
 5. therefore live consent, Drive/Picker, credential-revocation, deployed-dev
    telemetry, upgrade, and uninstall evidence cannot yet bind an accepted SHA.
 

@@ -21,6 +21,8 @@ repo-side acceptance evidence, not deployed or live-Google evidence.
 | Artifacts | exact source SHA, canonical Blueprint definition hash, package hash, manifest hash |
 | Transfer trust | signed URLs use an exact-origin allowlist; redirects and bearer forwarding are disabled; JSON/files/chunks/totals are bounded |
 | Public boundary | static scan rejects `@s360` imports, monorepo paths, internal persistence imports, broad Drive scope, and runtime dependencies |
+| Deployable runtime | API router, raw-body lifecycle HMAC, strict state parser, SigV4 AWS transport, optimistic DynamoDB state, leased idempotency, durable outbox, sanitized notifications, and all worker operations |
+| Infrastructure | SAM/CloudFormation lint validates the dev API/Lambda/DynamoDB/SQS/DLQ/log/alarms/custom-domain stack and protected-environment OIDC roles |
 
 Run the exact gate:
 
@@ -31,9 +33,8 @@ npm run artifacts -- --source-commit "$(git rev-parse HEAD)"
 ```
 
 The gate enforces compiled-source minimums of 85% line, 65% branch, and 85%
-function coverage with Node's built-in coverage collector. The accepted local
-Node 22.21.1 review measured 90.78% lines, 70.90% branches, and 93.57%
-functions.
+function coverage with Node's built-in coverage collector. Exact measured
+percentages are reported by each run rather than frozen in this document.
 
 Live conformance must add the exact repository SHA, deployed SHA, Google Cloud
 project/client identity, Simply360 app/release/installation Simply IDs,

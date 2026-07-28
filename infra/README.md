@@ -1,9 +1,11 @@
 # NonProd infrastructure and provisioning
 
-No AWS resource is created by this repository today. The topology below is the
-approved target for the live proof; provisioning remains blocked until the
-Google and Simply360 credentials/packages exist and a deployable handler/state
-adapter is reviewed.
+No AWS resource is created by this repository. The reviewed, dev-only source
+templates are [`dev.template.yaml`](./dev.template.yaml) and
+[`oidc-roles.template.yaml`](./oidc-roles.template.yaml). Provisioning remains
+blocked until the owner supplies the exact certificate, hosted-zone, secret,
+artifact-bucket, and transfer-origin inputs and the public Simply360 lifecycle
+client is published.
 
 ## Fixed ownership and names
 
@@ -45,8 +47,8 @@ secret values or assume monorepo/evidence/production roles.
   notification/change cursors, point-in-time recovery, and TTL for transient
   OAuth/PKCE/upload state;
 - SQS work queue plus DLQ for bounded reconciliation/transfer work;
-- repository-scoped Secrets Manager entries for Google OAuth/Picker and the
-  Simply360 confidential client;
+- references to two owner-created repository-scoped Secrets Manager entries
+  for Google OAuth/Picker material and Simply360 lifecycle HMAC keys;
 - seven-day CloudWatch log retention with alarms for DLQ depth, error rate,
   throttles, and oldest work age;
 - least-privilege runtime role for only its tables, queues, logs, and exact
@@ -54,9 +56,13 @@ secret values or assume monorepo/evidence/production roles.
 - no VPC, NAT gateway, database, SSM credential, public bucket, long-lived AWS
   key, or monorepo internal access.
 
-Every table record and queue message is keyed by the exact public installation
-Simply ID. Secrets and file bodies are never written to logs, DynamoDB,
-telemetry, or queue attributes.
+Every state/outbox record and queue message is installation-scoped by the exact
+public installation Simply ID. Provider client secrets and file bodies are
+never written to DynamoDB, SQS, logs, telemetry, or queue attributes.
+Installation OAuth credentials and resumable offsets are stored in the
+encrypted, access-controlled state table because durable restart recovery
+requires them. One-time OAuth state and Drive notification tokens are persisted
+or queued only as SHA-256 digests.
 
 The eventual handler must use `loadReferenceAppConfig` and supply, at minimum,
 these non-secret values alongside secret-manager material:
@@ -73,8 +79,11 @@ GOOGLE_OAUTH_SCOPE=https://www.googleapis.com/auth/drive.file
 contract or deployed-dev readback; do not guess a wildcard, accept arbitrary
 HTTPS, or infer trust from a signed URL alone. The derived Google callback is
 exactly `${PUBLIC_ORIGIN}/oauth/google/callback`. Google/Simply360 client
-credentials and the restricted Picker key remain secret-manager inputs, not
-environment literals committed here.
+credentials, the restricted Picker key, and lifecycle HMAC keys remain
+secret-manager inputs, not environment literals committed here. The Google
+secret JSON requires `clientId`, `clientSecret`, `pickerAppId`, and
+`pickerDeveloperKey`. The Simply360 secret requires one or two
+`lifecycleWebhookKeys` entries with `keyId` and at least 32-byte `secret`.
 
 ## Cost guardrail
 
@@ -96,8 +105,8 @@ spend exceeds $25/month.
 1. Complete [Google Cloud provisioning](../docs/provision-google.md).
 2. Complete the npm/public-package and private-app prerequisites in
    [Simply360 provisioning](../docs/provision-simply360.md).
-3. Review a source-controlled infrastructure template and deployable handler;
-   this repository currently has neither and must not claim deploy readiness.
+3. Re-run `npm run verify` plus `sam validate --lint` for both source
+   templates and review the packaged change set.
 4. Create the dev-only OIDC role and GitHub `dev` environment only after the
    template's resource/cost review.
 5. Deploy the exact accepted repository SHA through pinned GitHub Actions.
@@ -108,6 +117,12 @@ spend exceeds $25/month.
 8. Execute live acceptance and record exact repo/deployed SHAs.
 9. Remove synthetic files/installations and verify TTL/DLQ/queue cleanup.
 
-The absent infrastructure template/handler is an implementation blocker—not a
-credential-only configuration step—and is intentionally called out rather
-than hidden by a placeholder deployment.
+The remaining lifecycle-client blocker is intentional: the handler throws
+before any guessed Simply360 lifecycle endpoint can be called. Installation
+bootstrap is disabled in the template. Bind the published public client and
+its documented service-principal installation flow before live acceptance.
+
+GitHub's OIDC subject changes to `repo:...:environment:dev` when a protected
+environment is used, so it cannot simultaneously be the `ref:refs/heads/dev`
+subject. The role therefore pins the protected `dev` environment; the
+environment's deployment-branch rule must independently allow only `dev`.

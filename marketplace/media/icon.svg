@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Simply360 Reference Files for Google Drive</title>
+  <desc id="description">A blue file outline joined to a green circular transfer mark.</desc>
+  <rect width="512" height="512" rx="96" fill="#f7f9fc"/>
+  <path d="M132 84h158l90 90v254H132z" fill="#fff" stroke="#2563eb" stroke-width="28" stroke-linejoin="round"/>
+  <path d="M290 84v90h90" fill="none" stroke="#2563eb" stroke-width="28" stroke-linejoin="round"/>
+  <circle cx="282" cy="314" r="92" fill="#16a34a"/>
+  <path d="M226 294h102l-28-28m28 28-28 28M338 334H236l28 28m-28-28 28-28" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

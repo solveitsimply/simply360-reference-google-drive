@@ -30,6 +30,9 @@ jobs:
       - name: Install
         run: npm ci --no-audit --no-fund
 
+      - name: Public-boundary scan
+        run: npm run check:boundary
+
       - name: Type-check
         run: npm run type-check
 
@@ -38,3 +41,6 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Render source-bound marketplace artifacts
+        run: npm run artifacts -- --source-commit "${GITHUB_SHA}"

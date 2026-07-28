@@ -75,6 +75,12 @@ export interface GoogleAuthorizationRequest {
   readonly codeVerifier: string;
 }
 
+export interface GoogleAuthorizationStart {
+  readonly authorizationUrl: string;
+  readonly state: string;
+  readonly expiresAt: string;
+}
+
 export interface PickerSession {
   readonly appId: string;
   readonly developerKey: string;

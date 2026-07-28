@@ -61,10 +61,10 @@ const harness = () => {
 const connect = async (runtime, google, install = registration(), code = 'code-1') => {
   google.authorizeCode(code, { googleAccountSubject: `subject-${install.installationSimplyId}` });
   await runtime.registerInstallation(install);
+  const started = await runtime.beginGoogleConnection(install.installationSimplyId);
   await runtime.connectGoogle(install.installationSimplyId, {
     authorizationCode: code,
-    redirectUri: 'https://reference-drive.dev.example/oauth/google/callback',
-    codeVerifier: 'x'.repeat(43),
+    state: started.state,
   });
 };
 
@@ -257,15 +257,108 @@ describe('scope, selection, notification, and lifecycle fences', () => {
       googleAccountSubject: 'broad-subject',
     });
     await runtime.registerInstallation(install);
+    const started = await runtime.beginGoogleConnection(install.installationSimplyId);
     await assert.rejects(
       runtime.connectGoogle(install.installationSimplyId, {
         authorizationCode: 'broad',
-        redirectUri: 'https://reference-drive.dev.example/oauth/google/callback',
-        codeVerifier: 'x'.repeat(43),
+        state: started.state,
       }),
       (error) => error instanceof ReferenceRuntimeError && error.code === 'NOT_AUTHORIZED',
     );
     assert.equal(google.revokedSubjects.has('broad-subject'), true);
+  });
+
+  test('requires offline refresh authority and revokes an incomplete Google grant', async () => {
+    const { google, runtime } = harness();
+    const install = registration();
+    const credential = google.authorizeCode('online-only', {
+      refreshToken: undefined,
+      googleAccountSubject: 'online-only-subject',
+    });
+    credential.refreshToken = undefined;
+    await runtime.registerInstallation(install);
+    const started = await runtime.beginGoogleConnection(install.installationSimplyId);
+    await assert.rejects(
+      runtime.connectGoogle(install.installationSimplyId, {
+        authorizationCode: 'online-only',
+        state: started.state,
+      }),
+      /offline refresh authority/u,
+    );
+    assert.equal(google.revokedSubjects.has('online-only-subject'), true);
+  });
+
+  test('rejects OAuth state mix-up, expiry, and replay before exchanging the code', async () => {
+    const { clock, google, runtime } = harness();
+    const install = registration();
+    google.authorizeCode('state-code');
+    await runtime.registerInstallation(install);
+    const started = await runtime.beginGoogleConnection(install.installationSimplyId);
+    const authorizationUrl = new URL(started.authorizationUrl);
+    assert.equal(authorizationUrl.searchParams.get('scope'), GOOGLE_DRIVE_SCOPE);
+    assert.equal(authorizationUrl.searchParams.get('state'), started.state);
+    assert.equal(authorizationUrl.searchParams.get('code_challenge_method'), 'S256');
+    await assert.rejects(
+      runtime.connectGoogle(install.installationSimplyId, {
+        authorizationCode: 'state-code',
+        state: `${started.state}-forged`,
+      }),
+      /state is missing, expired, or invalid/u,
+    );
+    clock.advance(601_000);
+    await assert.rejects(
+      runtime.connectGoogle(install.installationSimplyId, {
+        authorizationCode: 'state-code',
+        state: started.state,
+      }),
+      /state is missing, expired, or invalid/u,
+    );
+
+    const restarted = await runtime.beginGoogleConnection(install.installationSimplyId);
+    await runtime.connectGoogle(install.installationSimplyId, {
+      authorizationCode: 'state-code',
+      state: restarted.state,
+    });
+    await assert.rejects(
+      runtime.connectGoogle(install.installationSimplyId, {
+        authorizationCode: 'state-code',
+        state: restarted.state,
+      }),
+      /state is missing, expired, or invalid/u,
+    );
+  });
+
+  test('requires explicit revocation before reconnecting and clears old account authority', async () => {
+    const { google, runtime } = harness();
+    const install = registration();
+    const oldFile = google.seedFile({
+      driveObjectId: 'drive-old-account-file',
+      name: 'old.txt',
+      mimeType: 'text/plain',
+      bytes: bytes('old'),
+    });
+    await connect(runtime, google, install, 'old-account');
+    await runtime.recordPickerSelection(install.installationSimplyId, pickerFile(oldFile), 'SOURCE');
+    await runtime.activateInstallation(install.installationSimplyId);
+    await assert.rejects(
+      runtime.beginGoogleConnection(install.installationSimplyId),
+      /Revoke the active Google connection/u,
+    );
+    const revoked = await runtime.revokeGoogleConnection(install.installationSimplyId);
+    assert.equal(revoked.selectionCount, 0);
+    assert.equal(revoked.changeCursor, undefined);
+
+    google.authorizeCode('new-account', { googleAccountSubject: 'new-account-subject' });
+    const restarted = await runtime.beginGoogleConnection(install.installationSimplyId);
+    const reconnected = await runtime.connectGoogle(install.installationSimplyId, {
+      authorizationCode: 'new-account',
+      state: restarted.state,
+    });
+    assert.equal(reconnected.googleConnectionStatus, 'ACTIVE');
+    await assert.rejects(
+      runtime.importSelectedFile(install.installationSimplyId, oldFile.driveObjectId),
+      /explicit file selection/u,
+    );
   });
 
   test('rejects shared-drive, folder-as-source, file-as-destination, and unselected objects', async () => {
@@ -323,6 +416,42 @@ describe('scope, selection, notification, and lifecycle fences', () => {
       /expired/u,
     );
     assert.equal((await runtime.getSnapshot(install.installationSimplyId)).changeCursor, undefined);
+  });
+
+  test('leaves a failed notification message retryable until reconciliation succeeds', async () => {
+    const { google, simply360, state, runtime } = harness();
+    const install = registration();
+    const source = google.seedFile({
+      driveObjectId: 'drive-notification-retry',
+      name: 'retry.txt',
+      mimeType: 'text/plain',
+      bytes: bytes('v1'),
+    });
+    await connect(runtime, google, install);
+    await runtime.recordPickerSelection(install.installationSimplyId, pickerFile(source), 'SOURCE');
+    await runtime.activateInstallation(install.installationSimplyId);
+    await runtime.importSelectedFile(install.installationSimplyId, source.driveObjectId);
+    const channel = await runtime.startChangeNotifications(install.installationSimplyId);
+    google.mutateFile(source.driveObjectId, bytes('v2'));
+    simply360.failNextImport = true;
+    const notification = {
+      channelId: channel.channelId,
+      resourceId: channel.resourceId,
+      channelToken: channel.channelToken,
+      messageNumber: '7',
+      resourceState: 'change',
+    };
+    await assert.rejects(
+      runtime.handleChangeNotification(install.installationSimplyId, notification),
+      /Injected Simply360 import failure/u,
+    );
+    assert.equal(state.states.get(install.installationSimplyId).notifications[0].lastMessageNumber, undefined);
+    assert.equal(state.states.get(install.installationSimplyId).changeCursor, undefined);
+
+    const recovered = await runtime.handleChangeNotification(install.installationSimplyId, notification);
+    assert.equal(recovered.changeCursor, '1');
+    assert.equal(state.states.get(install.installationSimplyId).notifications[0].lastMessageNumber, '7');
+    assert.equal(state.states.get(install.installationSimplyId).links[0].simply360VersionNumber, 2);
   });
 
   test('requires re-consent for widening and blocks ordinary use while suspended', async () => {

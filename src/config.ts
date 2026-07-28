@@ -3,11 +3,13 @@ import { GOOGLE_DRIVE_SCOPE } from './contracts.js';
 export interface ReferenceAppConfig {
   readonly environment: 'dev' | 'test';
   readonly simply360ApiBaseUrl: string;
+  readonly simply360TransferOrigins: readonly string[];
   readonly googleClientId: string;
   readonly googleClientSecret: string;
   readonly googlePickerAppId: string;
   readonly googlePickerDeveloperKey: string;
   readonly publicOrigin: string;
+  readonly googleRedirectUri: string;
   readonly googleScope: typeof GOOGLE_DRIVE_SCOPE;
   readonly uploadChunkBytes: number;
   readonly maximumTransferBytes: number;
@@ -34,6 +36,17 @@ const positiveInteger = (value: string | undefined, fallback: number, label: str
   return parsed;
 };
 
+const transferOrigins = (value: string): readonly string[] => {
+  const origins = value
+    .split(',')
+    .map((candidate) => exactHttpsOrigin(candidate.trim(), 'SIMPLY360_TRANSFER_ORIGINS'))
+    .filter(Boolean);
+  if (origins.length === 0 || new Set(origins).size !== origins.length) {
+    throw new Error('SIMPLY360_TRANSFER_ORIGINS must contain unique exact HTTPS origins.');
+  }
+  return origins;
+};
+
 export const loadReferenceAppConfig = (environment: NodeJS.ProcessEnv): ReferenceAppConfig => {
   const runtimeEnvironment = required(environment, 'REFERENCE_ENVIRONMENT');
   if (runtimeEnvironment !== 'dev' && runtimeEnvironment !== 'test') {
@@ -44,14 +57,17 @@ export const loadReferenceAppConfig = (environment: NodeJS.ProcessEnv): Referenc
     throw new Error(`Only ${GOOGLE_DRIVE_SCOPE} is authorized.`);
   }
 
+  const publicOrigin = exactHttpsOrigin(required(environment, 'PUBLIC_ORIGIN'), 'PUBLIC_ORIGIN');
   return {
     environment: runtimeEnvironment,
     simply360ApiBaseUrl: exactHttpsOrigin(required(environment, 'SIMPLY360_API_BASE_URL'), 'SIMPLY360_API_BASE_URL'),
+    simply360TransferOrigins: transferOrigins(required(environment, 'SIMPLY360_TRANSFER_ORIGINS')),
     googleClientId: required(environment, 'GOOGLE_CLIENT_ID'),
     googleClientSecret: required(environment, 'GOOGLE_CLIENT_SECRET'),
     googlePickerAppId: required(environment, 'GOOGLE_PICKER_APP_ID'),
     googlePickerDeveloperKey: required(environment, 'GOOGLE_PICKER_DEVELOPER_KEY'),
-    publicOrigin: exactHttpsOrigin(required(environment, 'PUBLIC_ORIGIN'), 'PUBLIC_ORIGIN'),
+    publicOrigin,
+    googleRedirectUri: `${publicOrigin}/oauth/google/callback`,
     googleScope: GOOGLE_DRIVE_SCOPE,
     uploadChunkBytes: positiveInteger(environment.UPLOAD_CHUNK_BYTES, 8 * 1024 * 1024, 'UPLOAD_CHUNK_BYTES'),
     maximumTransferBytes: positiveInteger(environment.MAXIMUM_TRANSFER_BYTES, 100 * 1024 * 1024, 'MAXIMUM_TRANSFER_BYTES'),

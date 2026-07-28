@@ -25,11 +25,19 @@ export interface PendingExport {
   readonly checksumSha256Base64: string;
 }
 
+export interface PendingGoogleAuthorization {
+  readonly stateSha256: string;
+  readonly codeVerifier: string;
+  readonly redirectUri: string;
+  readonly expiresAt: string;
+}
+
 export interface InstallationState {
   readonly installation: InstallationRegistration;
   readonly status: InstallationStatus;
   readonly googleCredential?: GoogleCredential;
   readonly googleConnectionStatus?: 'ACTIVE' | 'REVOKED';
+  readonly pendingGoogleAuthorization?: PendingGoogleAuthorization;
   readonly selections: readonly ExplicitSelection[];
   readonly links: readonly ExternalFileLink[];
   readonly notifications: readonly StoredNotification[];

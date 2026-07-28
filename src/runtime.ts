@@ -5,6 +5,7 @@ import {
   type GoogleDriveObject,
   type InstallationRegistration,
   type InstallationSnapshot,
+  type GoogleAuthorizationStart,
   type LinkDirection,
   type NotificationChannel,
   type NotificationHeaders,
@@ -12,7 +13,7 @@ import {
   type PickerSession,
   type TelemetryEvent,
 } from './contracts.js';
-import { constantTimeEqual, sha256Base64, sha256Hex } from './crypto.js';
+import { constantTimeEqual, sha256Base64, sha256Base64Url, sha256Hex } from './crypto.js';
 import type { ExplicitSelection, ReferenceRuntimePorts } from './ports.js';
 import type { InstallationState, PendingExport, StoredNotification } from './state.js';
 
@@ -20,6 +21,8 @@ export interface ReferenceRuntimeOptions {
   readonly uploadChunkBytes?: number;
   readonly maximumTransferBytes?: number;
   readonly maximumChangesPerReconciliation?: number;
+  readonly googleRedirectUri?: string;
+  readonly googleAuthorizationTtlSeconds?: number;
   readonly notificationTtlSeconds?: number;
 }
 
@@ -82,6 +85,8 @@ export class GoogleDriveReferenceRuntime {
   private readonly uploadChunkBytes: number;
   private readonly maximumTransferBytes: number;
   private readonly maximumChangesPerReconciliation: number;
+  private readonly googleRedirectUri: string;
+  private readonly googleAuthorizationTtlSeconds: number;
   private readonly notificationTtlSeconds: number;
 
   constructor(
@@ -91,10 +96,23 @@ export class GoogleDriveReferenceRuntime {
     this.uploadChunkBytes = options.uploadChunkBytes ?? 8 * 1024 * 1024;
     this.maximumTransferBytes = options.maximumTransferBytes ?? 100 * 1024 * 1024;
     this.maximumChangesPerReconciliation = options.maximumChangesPerReconciliation ?? 1_000;
+    this.googleRedirectUri = options.googleRedirectUri ?? 'https://reference-drive.dev.example/oauth/google/callback';
+    const googleRedirect = new URL(this.googleRedirectUri);
+    if (
+      googleRedirect.protocol !== 'https:' ||
+      googleRedirect.username ||
+      googleRedirect.password ||
+      googleRedirect.search ||
+      googleRedirect.hash
+    ) {
+      throw new Error('googleRedirectUri must be an exact credential-free HTTPS URL.');
+    }
+    this.googleAuthorizationTtlSeconds = options.googleAuthorizationTtlSeconds ?? 600;
     this.notificationTtlSeconds = options.notificationTtlSeconds ?? 6 * 24 * 60 * 60;
     assertFinitePositiveInteger(this.uploadChunkBytes, 'uploadChunkBytes');
     assertFinitePositiveInteger(this.maximumTransferBytes, 'maximumTransferBytes');
     assertFinitePositiveInteger(this.maximumChangesPerReconciliation, 'maximumChangesPerReconciliation');
+    assertFinitePositiveInteger(this.googleAuthorizationTtlSeconds, 'googleAuthorizationTtlSeconds');
     assertFinitePositiveInteger(this.notificationTtlSeconds, 'notificationTtlSeconds');
   }
 
@@ -131,19 +149,79 @@ export class GoogleDriveReferenceRuntime {
     return this.snapshot(state);
   }
 
-  async connectGoogle(installationSimplyId: string, request: Parameters<typeof this.ports.google.exchangeAuthorizationCode>[0]) {
+  async beginGoogleConnection(installationSimplyId: string): Promise<GoogleAuthorizationStart> {
+    const state = await this.requireState(installationSimplyId);
+    this.assertUsableForSetup(state);
+    if (state.googleCredential && state.googleConnectionStatus === 'ACTIVE') {
+      throw new ReferenceRuntimeError(
+        'INVALID_STATE',
+        'Revoke the active Google connection before starting a replacement connection.',
+      );
+    }
+    const stateToken = this.ports.ids.secret(32);
+    const codeVerifier = this.ports.ids.secret(64);
+    const expiresAt = new Date(
+      this.ports.clock.now().getTime() + this.googleAuthorizationTtlSeconds * 1000,
+    ).toISOString();
+    const next = this.touch({
+      ...state,
+      pendingGoogleAuthorization: {
+        stateSha256: sha256Hex(stateToken),
+        codeVerifier,
+        redirectUri: this.googleRedirectUri,
+        expiresAt,
+      },
+    });
+    await this.save(next);
+    return {
+      authorizationUrl: this.ports.google.createAuthorizationUrl({
+        state: stateToken,
+        codeChallenge: sha256Base64Url(codeVerifier),
+        redirectUri: this.googleRedirectUri,
+      }),
+      state: stateToken,
+      expiresAt,
+    };
+  }
+
+  async connectGoogle(
+    installationSimplyId: string,
+    callback: { readonly authorizationCode: string; readonly state: string },
+  ) {
     return this.withFailureTelemetry(installationSimplyId, 'google.connect', async (state) => {
       this.assertUsableForSetup(state);
-      const credential = await this.ports.google.exchangeAuthorizationCode(request);
+      const pending = state.pendingGoogleAuthorization;
+      if (
+        !pending ||
+        new Date(pending.expiresAt).getTime() <= this.ports.clock.now().getTime() ||
+        !constantTimeEqual(pending.stateSha256, sha256Hex(callback.state))
+      ) {
+        throw new ReferenceRuntimeError('NOT_AUTHORIZED', 'Google OAuth state is missing, expired, or invalid.');
+      }
+      const consumed = this.touch({ ...state, pendingGoogleAuthorization: undefined });
+      await this.save(consumed);
+      const credential = await this.ports.google.exchangeAuthorizationCode({
+        authorizationCode: callback.authorizationCode,
+        redirectUri: pending.redirectUri,
+        codeVerifier: pending.codeVerifier,
+      });
       const granted = new Set(credential.grantedScopes);
-      if (granted.size !== 1 || !granted.has(GOOGLE_DRIVE_SCOPE)) {
+      if (granted.size !== 1 || !granted.has(GOOGLE_DRIVE_SCOPE) || !credential.refreshToken) {
         await this.ports.google.revokeCredential(credential);
-        throw new ReferenceRuntimeError('NOT_AUTHORIZED', `Google must grant exactly ${GOOGLE_DRIVE_SCOPE}.`);
+        throw new ReferenceRuntimeError(
+          'NOT_AUTHORIZED',
+          `Google must grant exactly ${GOOGLE_DRIVE_SCOPE} with offline refresh authority.`,
+        );
       }
-      if (state.googleCredential && state.googleConnectionStatus === 'ACTIVE') {
-        await this.ports.google.revokeCredential(state.googleCredential);
+      if (consumed.googleCredential && consumed.googleConnectionStatus === 'ACTIVE') {
+        try {
+          await this.ports.google.revokeCredential(consumed.googleCredential);
+        } catch (error) {
+          await this.ports.google.revokeCredential(credential);
+          throw error;
+        }
       }
-      const next = this.touch({ ...state, googleCredential: credential, googleConnectionStatus: 'ACTIVE' });
+      const next = this.touch({ ...consumed, googleCredential: credential, googleConnectionStatus: 'ACTIVE' });
       await this.save(next);
       await this.emit(next, 'google.connected', { googleAccountSubjectHash: sha256Hex(credential.googleAccountSubject) });
       return this.snapshot(next);
@@ -239,7 +317,9 @@ export class GoogleDriveReferenceRuntime {
         throw new ReferenceRuntimeError('NOT_AUTHORIZED', 'Downloaded Google Drive content exceeds the configured transfer limit.');
       }
       const checksum = sha256Base64(download.bytes);
-      const existing = state.links.find((link) => link.direction === 'SOURCE' && link.driveObjectId === driveObjectId);
+      const existing = state.links.find(
+        (link) => link.direction === 'SOURCE' && link.driveObjectId === driveObjectId && link.status !== 'REVOKED',
+      );
       const imported = await this.ports.simply360.importFile(state.installation, {
         name: download.name,
         contentType: download.contentType,
@@ -297,7 +377,10 @@ export class GoogleDriveReferenceRuntime {
       let pending = state.pendingExports.find((candidate) => candidate.operationKey === key);
       let workingState = state;
       const existing = state.links.find(
-        (link) => link.direction === 'DESTINATION' && link.simply360FileSimplyId === input.fileSimplyId,
+        (link) =>
+          link.direction === 'DESTINATION' &&
+          link.simply360FileSimplyId === input.fileSimplyId &&
+          link.status === 'ACTIVE',
       );
       if (!pending) {
         const started = await this.ports.google.beginResumableUpload(credential, {
@@ -325,7 +408,10 @@ export class GoogleDriveReferenceRuntime {
       const uploaded = await this.finishUpload(workingState, pending, credential, file.bytes);
       const refreshed = await this.requireState(installationSimplyId);
       const refreshedExisting = refreshed.links.find(
-        (link) => link.direction === 'DESTINATION' && link.simply360FileSimplyId === input.fileSimplyId,
+        (link) =>
+          link.direction === 'DESTINATION' &&
+          link.simply360FileSimplyId === input.fileSimplyId &&
+          link.status === 'ACTIVE',
       );
       const link = this.makeLink(refreshed, {
         direction: 'DESTINATION',
@@ -390,13 +476,29 @@ export class GoogleDriveReferenceRuntime {
         await this.emit(state, 'notification.duplicate', { messageNumber: headers.messageNumber });
         return this.snapshot(state);
       }
-      const updatedNotification: StoredNotification = { channel: stored.channel, lastMessageNumber: headers.messageNumber };
-      const withMessage = this.touch({
-        ...state,
-        notifications: state.notifications.map((candidate) => (candidate === stored ? updatedNotification : candidate)),
+      // Checkpoint the message only after reconciliation succeeds. A failed
+      // transfer must remain retryable with the same provider message number.
+      await this.reconcile(installationSimplyId);
+      const reconciled = await this.requireState(installationSimplyId);
+      const current = reconciled.notifications.find(
+        ({ channel }) => channel.channelId === stored.channel.channelId && channel.resourceId === stored.channel.resourceId,
+      );
+      if (!current) throw new ReferenceRuntimeError('INVALID_STATE', 'Google notification channel disappeared during reconciliation.');
+      if (current.lastMessageNumber !== undefined && BigInt(current.lastMessageNumber) >= BigInt(headers.messageNumber)) {
+        return this.snapshot(reconciled);
+      }
+      const updatedNotification: StoredNotification = { channel: current.channel, lastMessageNumber: headers.messageNumber };
+      const checkpointed = this.touch({
+        ...reconciled,
+        notifications: reconciled.notifications.map((candidate) =>
+          candidate.channel.channelId === current.channel.channelId &&
+          candidate.channel.resourceId === current.channel.resourceId
+            ? updatedNotification
+            : candidate,
+        ),
       });
-      await this.save(withMessage);
-      return this.reconcile(installationSimplyId);
+      await this.save(checkpointed);
+      return this.snapshot(checkpointed);
     });
   }
 
@@ -454,7 +556,11 @@ export class GoogleDriveReferenceRuntime {
         ...state,
         googleCredential: undefined,
         googleConnectionStatus: 'REVOKED',
+        pendingGoogleAuthorization: undefined,
+        selections: [],
         notifications: [],
+        pendingExports: [],
+        changeCursor: undefined,
         links: state.links.map((link) => ({ ...link, status: 'REVOKED' as const, updatedAt: this.now() })),
       });
       await this.save(next);
@@ -494,7 +600,7 @@ export class GoogleDriveReferenceRuntime {
   async suspend(installationSimplyId: string): Promise<InstallationSnapshot> {
     const state = await this.requireState(installationSimplyId);
     if (state.status !== 'ACTIVE') throw new ReferenceRuntimeError('INVALID_STATE', 'Only an ACTIVE installation can be suspended.');
-    const next = this.touch({ ...state, status: 'SUSPENDED' });
+    const next = this.touch({ ...state, status: 'SUSPENDED', pendingGoogleAuthorization: undefined });
     await this.save(next);
     await this.emit(next, 'installation.suspended');
     return this.snapshot(next);
@@ -522,6 +628,7 @@ export class GoogleDriveReferenceRuntime {
         status: 'UNINSTALLED',
         googleCredential: undefined,
         googleConnectionStatus: state.googleConnectionStatus ? 'REVOKED' : undefined,
+        pendingGoogleAuthorization: undefined,
         selections: deletionDecision === 'DELETE_APP_DATA' ? [] : state.selections,
         links:
           deletionDecision === 'DELETE_APP_DATA'

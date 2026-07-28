@@ -40,7 +40,7 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test
+        run: npm run test:coverage
 
       - name: Render source-bound marketplace artifacts
         run: npm run artifacts -- --source-commit "${GITHUB_SHA}"

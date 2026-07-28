@@ -12,6 +12,7 @@ import {
   type PickerSession,
   type ResumableUpload,
 } from './contracts.js';
+import { sha256Hex } from './crypto.js';
 import type { Clock, GoogleDrivePort } from './ports.js';
 
 type Fetch = typeof fetch;
@@ -22,9 +23,14 @@ export interface GoogleDriveHttpOptions {
   readonly pickerAppId: string;
   readonly pickerDeveloperKey: string;
   readonly publicOrigin: string;
+  readonly redirectUri: string;
   readonly fetch?: Fetch;
   readonly clock?: Clock;
   readonly maximumChangePages?: number;
+  readonly maximumDownloadBytes?: number;
+  readonly maximumJsonBytes?: number;
+  readonly maximumUploadChunkBytes?: number;
+  readonly maximumUploadBytes?: number;
 }
 
 const GOOGLE_API_ORIGIN = 'https://www.googleapis.com';
@@ -66,10 +72,43 @@ const parseDriveObject = (input: unknown): GoogleDriveObject => {
   };
 };
 
-const parseJson = async (response: Response, label: string): Promise<unknown> => {
+const readBoundedBytes = async (response: Response, maximumBytes: number, label: string): Promise<Uint8Array> => {
+  const contentLength = response.headers.get('content-length');
+  if (contentLength && nonNegativeInteger(contentLength, `${label} content length`) > maximumBytes) {
+    throw new Error(`${label} exceeded the configured byte limit.`);
+  }
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      total += result.value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel();
+        throw new Error(`${label} exceeded the configured byte limit.`);
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined;
+};
+
+const parseJson = async (response: Response, label: string, maximumBytes = 1024 * 1024): Promise<unknown> => {
   const contentType = response.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) throw new Error(`${label} did not return JSON.`);
-  return response.json();
+  const body = await readBoundedBytes(response, maximumBytes, label);
+  return JSON.parse(new TextDecoder().decode(body)) as unknown;
 };
 
 const assertResponse = async (response: Response, label: string, allowed: readonly number[] = []): Promise<void> => {
@@ -113,7 +152,12 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
   private readonly fetcher: Fetch;
   private readonly now: () => Date;
   private readonly publicOrigin: string;
+  private readonly redirectUri: string;
   private readonly maximumChangePages: number;
+  private readonly maximumDownloadBytes: number;
+  private readonly maximumJsonBytes: number;
+  private readonly maximumUploadChunkBytes: number;
+  private readonly maximumUploadBytes: number;
   private readonly refreshed = new Map<string, CachedAccess>();
 
   constructor(private readonly options: GoogleDriveHttpOptions) {
@@ -121,22 +165,63 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       throw new Error('Google OAuth and Picker configuration is incomplete.');
     }
     this.publicOrigin = exactOrigin(options.publicOrigin, 'publicOrigin');
+    const redirect = new URL(options.redirectUri);
+    if (
+      redirect.protocol !== 'https:' ||
+      redirect.origin !== this.publicOrigin ||
+      redirect.username ||
+      redirect.password ||
+      redirect.search ||
+      redirect.hash
+    ) {
+      throw new Error('redirectUri must be an exact HTTPS URL on publicOrigin.');
+    }
+    this.redirectUri = redirect.toString();
     this.fetcher = options.fetch ?? fetch;
     this.now = () => options.clock?.now() ?? new Date();
     this.maximumChangePages = options.maximumChangePages ?? 10;
+    this.maximumDownloadBytes = options.maximumDownloadBytes ?? 100 * 1024 * 1024;
+    this.maximumJsonBytes = options.maximumJsonBytes ?? 1024 * 1024;
+    this.maximumUploadChunkBytes = options.maximumUploadChunkBytes ?? 16 * 1024 * 1024;
+    this.maximumUploadBytes = options.maximumUploadBytes ?? 100 * 1024 * 1024;
     if (!Number.isSafeInteger(this.maximumChangePages) || this.maximumChangePages < 1) {
       throw new Error('maximumChangePages must be a positive integer.');
     }
+    for (const [label, value] of [
+      ['maximumDownloadBytes', this.maximumDownloadBytes],
+      ['maximumJsonBytes', this.maximumJsonBytes],
+      ['maximumUploadChunkBytes', this.maximumUploadChunkBytes],
+      ['maximumUploadBytes', this.maximumUploadBytes],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${label} must be a positive integer.`);
+    }
+  }
+
+  createAuthorizationUrl(input: { state: string; codeChallenge: string; redirectUri: string }): string {
+    if (input.redirectUri !== this.redirectUri) throw new Error('Google authorization redirect URI is not exact.');
+    if (!/^[A-Za-z0-9_-]{43,128}$/u.test(input.codeChallenge)) throw new Error('Google PKCE challenge is invalid.');
+    if (!/^[A-Za-z0-9_-]{32,256}$/u.test(input.state)) throw new Error('Google OAuth state is invalid.');
+    const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    url.search = new URLSearchParams({
+      client_id: this.options.clientId,
+      redirect_uri: this.redirectUri,
+      response_type: 'code',
+      scope: GOOGLE_DRIVE_SCOPE,
+      state: input.state,
+      code_challenge: input.codeChallenge,
+      code_challenge_method: 'S256',
+      access_type: 'offline',
+      include_granted_scopes: 'false',
+      prompt: 'consent',
+    }).toString();
+    return url.toString();
   }
 
   async exchangeAuthorizationCode(request: GoogleAuthorizationRequest): Promise<GoogleCredential> {
     if (request.codeVerifier.length < 43 || request.codeVerifier.length > 128) {
       throw new Error('Google PKCE verifier must contain 43 to 128 characters.');
     }
-    const redirect = new URL(request.redirectUri);
-    if (redirect.protocol !== 'https:' || redirect.origin !== this.publicOrigin || redirect.search || redirect.hash) {
-      throw new Error('Google redirect URI must use the configured public origin.');
-    }
+    if (request.redirectUri !== this.redirectUri) throw new Error('Google redirect URI is not exact.');
     const response = await this.fetcher(`${GOOGLE_OAUTH_ORIGIN}/token`, {
       method: 'POST',
       redirect: 'error',
@@ -151,10 +236,12 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       }),
     });
     await assertResponse(response, 'Google OAuth exchange');
-    const body = object(await parseJson(response, 'Google OAuth exchange'), 'Google OAuth exchange');
+    const body = object(await parseJson(response, 'Google OAuth exchange', this.maximumJsonBytes), 'Google OAuth exchange');
     const accessToken = text(body.access_token, 'Google access token');
+    if (text(body.token_type, 'Google token type').toLowerCase() !== 'bearer') throw new Error('Google token type must be Bearer.');
     const refreshToken = optionalText(body.refresh_token);
     const expiresIn = nonNegativeInteger(body.expires_in, 'Google token expiry');
+    if (expiresIn === 0) throw new Error('Google token expiry must be positive.');
     const scope = text(body.scope, 'Google granted scope').trim().split(/\s+/u);
     if (scope.length !== 1 || scope[0] !== GOOGLE_DRIVE_SCOPE) {
       await this.revokeRaw(accessToken);
@@ -164,7 +251,10 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       accessToken,
       `${GOOGLE_API_ORIGIN}/drive/v3/about?fields=user(permissionId)`,
     );
-    const about = object(await parseJson(aboutResponse, 'Google Drive about'), 'Google Drive about');
+    const about = object(
+      await parseJson(aboutResponse, 'Google Drive about', this.maximumJsonBytes),
+      'Google Drive about',
+    );
     const user = object(about.user, 'Google Drive user');
     const googleAccountSubject = text(user.permissionId, 'Google Drive permissionId');
     return {
@@ -195,7 +285,7 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       credential,
       `${GOOGLE_API_ORIGIN}/drive/v3/files/${pathSegment(driveObjectId)}?fields=${encodeURIComponent(fields)}&supportsAllDrives=false`,
     );
-    return parseDriveObject(await parseJson(response, 'Google Drive metadata'));
+    return parseDriveObject(await parseJson(response, 'Google Drive metadata', this.maximumJsonBytes));
   }
 
   async downloadObject(credential: GoogleCredential, driveObjectId: string): Promise<GoogleDownload> {
@@ -206,7 +296,7 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       ? `${GOOGLE_API_ORIGIN}/drive/v3/files/${pathSegment(driveObjectId)}/export?mimeType=${encodeURIComponent(exported.mimeType)}`
       : `${GOOGLE_API_ORIGIN}/drive/v3/files/${pathSegment(driveObjectId)}?alt=media&supportsAllDrives=false`;
     const response = await this.authorized(credential, url);
-    const buffer = new Uint8Array(await response.arrayBuffer());
+    const buffer = await readBoundedBytes(response, this.maximumDownloadBytes, 'Google Drive download');
     return {
       bytes: buffer,
       name: exported?.name ?? metadata.name,
@@ -224,6 +314,9 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       existingDriveObjectId?: string;
     },
   ): Promise<ResumableUpload> {
+    if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 0 || input.sizeBytes > this.maximumUploadBytes) {
+      throw new Error('Google upload size is outside the configured byte limit.');
+    }
     const path = input.existingDriveObjectId
       ? `/upload/drive/v3/files/${pathSegment(input.existingDriveObjectId)}`
       : '/upload/drive/v3/files';
@@ -251,7 +344,13 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
     const location = response.headers.get('location');
     if (!location) throw new Error('Google resumable upload omitted its Location header.');
     const uploadUrl = new URL(location);
-    if (uploadUrl.protocol !== 'https:' || uploadUrl.origin !== GOOGLE_UPLOAD_ORIGIN || uploadUrl.username || uploadUrl.password) {
+    if (
+      uploadUrl.protocol !== 'https:' ||
+      uploadUrl.origin !== GOOGLE_UPLOAD_ORIGIN ||
+      uploadUrl.username ||
+      uploadUrl.password ||
+      uploadUrl.hash
+    ) {
       throw new Error('Google resumable upload returned an untrusted Location.');
     }
     return { uploadId: uploadUrl.toString(), nextOffset: 0 };
@@ -262,8 +361,27 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
     uploadId: string,
     input: { bytes: Uint8Array; offset: number; totalBytes: number },
   ): Promise<ResumableUpload | GoogleDriveObject> {
+    if (
+      !Number.isSafeInteger(input.offset) ||
+      input.offset < 0 ||
+      !Number.isSafeInteger(input.totalBytes) ||
+      input.totalBytes < 0 ||
+      input.totalBytes > this.maximumUploadBytes ||
+      input.bytes.byteLength > this.maximumUploadChunkBytes ||
+      (input.totalBytes === 0
+        ? input.offset !== 0 || input.bytes.byteLength !== 0
+        : input.bytes.byteLength === 0 || input.offset + input.bytes.byteLength > input.totalBytes)
+    ) {
+      throw new Error('Google upload chunk is outside the configured byte and offset limits.');
+    }
     const uploadUrl = new URL(uploadId);
-    if (uploadUrl.protocol !== 'https:' || uploadUrl.origin !== GOOGLE_UPLOAD_ORIGIN || uploadUrl.username || uploadUrl.password) {
+    if (
+      uploadUrl.protocol !== 'https:' ||
+      uploadUrl.origin !== GOOGLE_UPLOAD_ORIGIN ||
+      uploadUrl.username ||
+      uploadUrl.password ||
+      uploadUrl.hash
+    ) {
       throw new Error('Google resumable upload URL is untrusted.');
     }
     const end = input.offset + input.bytes.byteLength - 1;
@@ -279,7 +397,9 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       body: input.bytes,
     });
     await assertResponse(response, 'Google resumable upload', [308]);
-    if (response.status !== 308) return parseDriveObject(await parseJson(response, 'Google resumable upload'));
+    if (response.status !== 308) {
+      return parseDriveObject(await parseJson(response, 'Google resumable upload', this.maximumJsonBytes));
+    }
     const range = response.headers.get('range');
     const match = range?.match(/^bytes=0-(\d+)$/u);
     const nextOffset = match ? Number(match[1]) + 1 : input.offset;
@@ -293,8 +413,20 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
     credential: GoogleCredential,
     input: { channelId: string; channelToken: string; expiresAt: string },
   ): Promise<NotificationChannel> {
+    const requestedExpiration = new Date(input.expiresAt).getTime();
+    if (
+      !input.channelId ||
+      !input.channelToken ||
+      !Number.isFinite(requestedExpiration) ||
+      requestedExpiration <= this.now().getTime()
+    ) {
+      throw new Error('Google change notification input is invalid or expired.');
+    }
     const tokenResponse = await this.authorized(credential, `${GOOGLE_API_ORIGIN}/drive/v3/changes/startPageToken`);
-    const tokenBody = object(await parseJson(tokenResponse, 'Google change start token'), 'Google change start token');
+    const tokenBody = object(
+      await parseJson(tokenResponse, 'Google change start token', this.maximumJsonBytes),
+      'Google change start token',
+    );
     const pageToken = text(tokenBody.startPageToken, 'Google change start page token');
     const response = await this.authorized(
       credential,
@@ -312,12 +444,24 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
         }),
       },
     );
-    const body = object(await parseJson(response, 'Google change notification'), 'Google change notification');
+    const body = object(
+      await parseJson(response, 'Google change notification', this.maximumJsonBytes),
+      'Google change notification',
+    );
+    const channelId = text(body.id, 'Google channel id');
+    const expiration = nonNegativeInteger(body.expiration, 'Google channel expiration');
+    if (
+      channelId !== input.channelId ||
+      expiration <= this.now().getTime() ||
+      expiration > requestedExpiration
+    ) {
+      throw new Error('Google change notification response exceeded the requested channel authority.');
+    }
     return {
-      channelId: text(body.id, 'Google channel id'),
+      channelId,
       resourceId: text(body.resourceId, 'Google channel resource id'),
       channelToken: input.channelToken,
-      expiresAt: new Date(nonNegativeInteger(body.expiration, 'Google channel expiration')).toISOString(),
+      expiresAt: new Date(expiration).toISOString(),
     };
   }
 
@@ -332,7 +476,10 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
   async listChanges(credential: GoogleCredential, cursor?: string): Promise<GoogleChangePage> {
     if (!cursor) {
       const response = await this.authorized(credential, `${GOOGLE_API_ORIGIN}/drive/v3/changes/startPageToken`);
-      const body = object(await parseJson(response, 'Google change start token'), 'Google change start token');
+      const body = object(
+        await parseJson(response, 'Google change start token', this.maximumJsonBytes),
+        'Google change start token',
+      );
       return { changes: [], nextCursor: text(body.startPageToken, 'Google change start page token') };
     }
     const fields =
@@ -340,6 +487,7 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
     let pageToken: string | undefined = cursor;
     const changes: GoogleChange[] = [];
     let nextCursor = cursor;
+    let receivedNewStart = false;
     let pageCount = 0;
     do {
       pageCount += 1;
@@ -348,7 +496,7 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
         credential,
         `${GOOGLE_API_ORIGIN}/drive/v3/changes?pageToken=${encodeURIComponent(pageToken)}&spaces=drive&supportsAllDrives=false&includeItemsFromAllDrives=false&fields=${encodeURIComponent(fields)}`,
       );
-      const body = object(await parseJson(response, 'Google changes'), 'Google changes');
+      const body = object(await parseJson(response, 'Google changes', this.maximumJsonBytes), 'Google changes');
       if (!Array.isArray(body.changes)) throw new Error('Google changes did not contain an array.');
       for (const item of body.changes) {
         const change = object(item, 'Google change');
@@ -362,15 +510,19 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       }
       const nextPage = optionalText(body.nextPageToken);
       const newStart = optionalText(body.newStartPageToken);
-      if (newStart) nextCursor = newStart;
+      if (newStart) {
+        nextCursor = newStart;
+        receivedNewStart = true;
+      }
       pageToken = nextPage;
     } while (pageToken);
+    if (!receivedNewStart) throw new Error('Google change listing omitted its new start page token.');
     return { changes, nextCursor };
   }
 
   async revokeCredential(credential: GoogleCredential): Promise<void> {
     await this.revokeRaw(credential.refreshToken ?? credential.accessToken);
-    this.refreshed.delete(credential.googleAccountSubject);
+    this.refreshed.delete(this.credentialCacheKey(credential));
   }
 
   private async authorized(credential: GoogleCredential, url: string, init: RequestInit = {}): Promise<Response> {
@@ -400,7 +552,11 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
   }
 
   private async accessToken(credential: GoogleCredential): Promise<string> {
-    const cached = this.refreshed.get(credential.googleAccountSubject);
+    if (credential.grantedScopes.length !== 1 || credential.grantedScopes[0] !== GOOGLE_DRIVE_SCOPE) {
+      throw new Error('Google credential does not have exact drive.file authority.');
+    }
+    const cacheKey = this.credentialCacheKey(credential);
+    const cached = this.refreshed.get(cacheKey);
     if (cached && new Date(cached.expiresAt).getTime() - this.now().getTime() > 60_000) return cached.accessToken;
     if (new Date(credential.expiresAt).getTime() - this.now().getTime() > 60_000) return credential.accessToken;
     if (!credential.refreshToken) throw new Error('Google access token expired without refresh authority.');
@@ -416,17 +572,27 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       }),
     });
     await assertResponse(response, 'Google token refresh');
-    const body = object(await parseJson(response, 'Google token refresh'), 'Google token refresh');
+    const body = object(await parseJson(response, 'Google token refresh', this.maximumJsonBytes), 'Google token refresh');
+    const tokenType = optionalText(body.token_type);
+    if (tokenType && tokenType.toLowerCase() !== 'bearer') throw new Error('Refreshed Google token type must be Bearer.');
     const scope = optionalText(body.scope)?.trim().split(/\s+/u) ?? [...credential.grantedScopes];
     if (scope.length !== 1 || scope[0] !== GOOGLE_DRIVE_SCOPE) {
+      const accessToken = optionalText(body.access_token);
+      if (accessToken) await this.revokeRaw(accessToken);
       throw new Error('Refreshed Google token no longer has exact drive.file authority.');
     }
+    const expiresIn = nonNegativeInteger(body.expires_in, 'Google token expiry');
+    if (expiresIn === 0) throw new Error('Refreshed Google token expiry must be positive.');
     const refreshed = {
       accessToken: text(body.access_token, 'Refreshed Google access token'),
-      expiresAt: new Date(this.now().getTime() + nonNegativeInteger(body.expires_in, 'Google token expiry') * 1000).toISOString(),
+      expiresAt: new Date(this.now().getTime() + expiresIn * 1000).toISOString(),
     };
-    this.refreshed.set(credential.googleAccountSubject, refreshed);
+    this.refreshed.set(cacheKey, refreshed);
     return refreshed.accessToken;
+  }
+
+  private credentialCacheKey(credential: GoogleCredential): string {
+    return sha256Hex(credential.refreshToken ?? credential.accessToken);
   }
 
   private async revokeRaw(token: string): Promise<void> {
@@ -436,6 +602,6 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token }),
     });
-    await assertResponse(response, 'Google token revocation', [400]);
+    await assertResponse(response, 'Google token revocation');
   }
 }

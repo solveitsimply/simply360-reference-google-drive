@@ -4,6 +4,8 @@ import type { IdGenerator } from './ports.js';
 
 export const sha256Base64 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('base64');
 
+export const sha256Base64Url = (value: string | Uint8Array): string => createHash('sha256').update(value).digest('base64url');
+
 export const sha256Hex = (value: string | Uint8Array): string => createHash('sha256').update(value).digest('hex');
 
 export const constantTimeEqual = (left: string, right: string): boolean => {

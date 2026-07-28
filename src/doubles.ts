@@ -41,7 +41,9 @@ export class DeterministicIdGenerator implements IdGenerator {
 
   secret(bytes: number): string {
     this.counter += 1;
-    return `secret-${bytes}-${String(this.counter).padStart(8, '0')}`;
+    const length = Math.ceil((bytes * 4) / 3);
+    const seed = `s${String(this.counter).padStart(8, '0')}`;
+    return seed.repeat(Math.ceil(length / seed.length)).slice(0, length);
   }
 }
 
@@ -83,6 +85,23 @@ export class GoogleDriveDouble implements GoogleDrivePort {
   private channelCounter = 0;
 
   constructor(private readonly clock: Clock = new FixedClock()) {}
+
+  createAuthorizationUrl(input: { state: string; codeChallenge: string; redirectUri: string }): string {
+    const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    url.search = new URLSearchParams({
+      client_id: 'double-client-id',
+      redirect_uri: input.redirectUri,
+      response_type: 'code',
+      scope: GOOGLE_DRIVE_SCOPE,
+      state: input.state,
+      code_challenge: input.codeChallenge,
+      code_challenge_method: 'S256',
+      access_type: 'offline',
+      include_granted_scopes: 'false',
+      prompt: 'consent',
+    }).toString();
+    return url.toString();
+  }
 
   authorizeCode(code: string, credential?: Partial<GoogleCredential>): GoogleCredential {
     const complete: GoogleCredential = {

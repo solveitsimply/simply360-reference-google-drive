@@ -6,6 +6,7 @@ import { GOOGLE_DRIVE_SCOPE, loadReferenceAppConfig } from '../dist/index.js';
 const valid = () => ({
   REFERENCE_ENVIRONMENT: 'test',
   SIMPLY360_API_BASE_URL: 'https://api.dev.simply360.app',
+  SIMPLY360_TRANSFER_ORIGINS: 'https://synthetic-upload.example,https://synthetic-download.example',
   GOOGLE_CLIENT_ID: 'client-id',
   GOOGLE_CLIENT_SECRET: 'client-secret',
   GOOGLE_PICKER_APP_ID: 'picker-app-id',
@@ -16,6 +17,7 @@ const valid = () => ({
 test('loads an exact dev/test configuration with conservative defaults', () => {
   const config = loadReferenceAppConfig(valid());
   assert.equal(config.googleScope, GOOGLE_DRIVE_SCOPE);
+  assert.equal(config.googleRedirectUri, 'https://reference-drive.dev.example/oauth/google/callback');
   assert.equal(config.uploadChunkBytes, 8 * 1024 * 1024);
   assert.equal(config.maximumTransferBytes, 100 * 1024 * 1024);
   assert.equal(config.notificationTtlSeconds, 6 * 24 * 60 * 60);
@@ -34,6 +36,22 @@ test('rejects production, broader scopes, URL credentials, and non-origin URLs',
   assert.throws(
     () => loadReferenceAppConfig({ ...valid(), PUBLIC_ORIGIN: 'https://reference-drive.dev.example/path' }),
     /exact HTTPS origin/u,
+  );
+  assert.throws(
+    () =>
+      loadReferenceAppConfig({
+        ...valid(),
+        SIMPLY360_TRANSFER_ORIGINS: 'https://synthetic-upload.example/path',
+      }),
+    /exact HTTPS origin/u,
+  );
+  assert.throws(
+    () =>
+      loadReferenceAppConfig({
+        ...valid(),
+        SIMPLY360_TRANSFER_ORIGINS: 'https://synthetic-upload.example,https://synthetic-upload.example',
+      }),
+    /unique exact HTTPS origins/u,
   );
 });
 

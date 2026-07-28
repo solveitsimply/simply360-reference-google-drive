@@ -24,6 +24,11 @@ export interface IdGenerator {
 }
 
 export interface GoogleDrivePort {
+  createAuthorizationUrl(input: {
+    state: string;
+    codeChallenge: string;
+    redirectUri: string;
+  }): string;
   exchangeAuthorizationCode(request: GoogleAuthorizationRequest): Promise<GoogleCredential>;
   createPickerSession(credential: GoogleCredential): Promise<PickerSession>;
   getObject(credential: GoogleCredential, driveObjectId: string): Promise<GoogleDriveObject>;

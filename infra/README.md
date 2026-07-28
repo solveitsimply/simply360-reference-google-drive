@@ -58,6 +58,24 @@ Every table record and queue message is keyed by the exact public installation
 Simply ID. Secrets and file bodies are never written to logs, DynamoDB,
 telemetry, or queue attributes.
 
+The eventual handler must use `loadReferenceAppConfig` and supply, at minimum,
+these non-secret values alongside secret-manager material:
+
+```text
+REFERENCE_ENVIRONMENT=dev
+SIMPLY360_API_BASE_URL=https://api.dev.simply360.app
+SIMPLY360_TRANSFER_ORIGINS=<comma-separated exact HTTPS object-transfer origins>
+PUBLIC_ORIGIN=https://reference-drive.dev.simply360.app
+GOOGLE_OAUTH_SCOPE=https://www.googleapis.com/auth/drive.file
+```
+
+`SIMPLY360_TRANSFER_ORIGINS` must come from the published Simply360 file API
+contract or deployed-dev readback; do not guess a wildcard, accept arbitrary
+HTTPS, or infer trust from a signed URL alone. The derived Google callback is
+exactly `${PUBLIC_ORIGIN}/oauth/google/callback`. Google/Simply360 client
+credentials and the restricted Picker key remain secret-manager inputs, not
+environment literals committed here.
+
 ## Cost guardrail
 
 The approved total marketplace NonProd envelope remains $25/month. This

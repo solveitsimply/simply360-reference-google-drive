@@ -3,6 +3,10 @@
 ## Trust boundaries
 
 - Simply360 installation OAuth and Google OAuth are independent credentials.
+- Google authorization starts with a cryptographically random state and PKCE
+  verifier. State is stored only as a hash, expires after ten minutes, is
+  compared in constant time, and is consumed before the code exchange so
+  mix-up and replay fail closed.
 - Every state, selection, link, upload, cursor, notification channel, and
   telemetry event is installation-scoped.
 - A Google Picker result is not trusted by itself; the runtime reads the exact
@@ -25,13 +29,21 @@
 ## Input and resource controls
 
 - exact HTTPS origins and no URL credentials;
+- exact Google redirect URI and an explicit exact-origin allowlist for
+  Simply360-issued signed transfer URLs;
 - redirects disabled in server-to-server requests;
 - Google resumable `Location` pinned to the expected Google origin;
 - public signed upload/download calls never receive provider bearer tokens;
-- bounded transfer bytes, upload chunks, completion polls, change pages,
-  reconciliation items, channel lifetime, and message-number length;
+- bounded JSON bodies, transfer bytes, upload totals/chunks, completion polls,
+  change pages, reconciliation items, channel lifetime, and message-number
+  length;
 - exact checksums before Simply360 upload and after Simply360 download;
-- constant-time comparison for notification channel tokens;
+- constant-time comparison for OAuth state and notification channel tokens;
+- refreshed Google tokens are cached by a hash of their credential family,
+  never by the possibly shared Google account subject;
+- replacing a Google account requires explicit revocation; stale selections,
+  cursors, channels, and pending uploads are cleared before another account
+  can be connected;
 - scope widening fails closed.
 
 ## Failure and cleanup
@@ -39,8 +51,10 @@
 Imports create a durable link only after Simply360 reports completion. Exports
 persist the next accepted offset before continuing. Reconciliation advances
 its cursor only after the bounded page completes; repeated imports use a
-content/version-bound idempotency key. Remote source deletion never cascades to
-the Simply360 copy.
+content/version-bound idempotency key. A notification message number is
+checkpointed only after reconciliation succeeds, so the same provider message
+remains retryable after a transfer failure. Remote source deletion never
+cascades to the Simply360 copy.
 
 Uninstall is driven by an explicit export/deletion decision. Provider
 credentials and notification channels are revoked; pending uploads are

@@ -16,9 +16,10 @@ does not claim live Google or deployed-dev conformance.
 - Simply360 service-principal installation starts `PENDING_SETUP`; ordinary
   file operations remain denied until the Google connection completes and the
   public setup callback succeeds.
-- Google OAuth authorization-code + PKCE requests exactly
-  `https://www.googleapis.com/auth/drive.file`. Any broader grant is revoked
-  and rejected.
+- Google OAuth authorization-code + PKCE uses an app-owned, expiring,
+  single-use state value and an exact redirect URI, and requests exactly
+  `https://www.googleapis.com/auth/drive.file` with offline refresh
+  authority. Any broader or online-only grant is revoked and rejected.
 - Google Picker records one explicit file for import or one explicit folder
   for export. Shared Drives are rejected.
 - Imports use checksum-bound Simply360 `/v1/file-uploads` intents. Re-imports
@@ -32,7 +33,9 @@ does not claim live Google or deployed-dev conformance.
 - Reconciliation is cursor-bound and bounded. A missing Drive source marks the
   link `REMOTE_MISSING`; it never deletes the imported Simply360 file.
 - Google credential revocation is installation-scoped. Sibling installations
-  retain independent credentials, links, cursors, and authority.
+  retain independent credentials, links, cursors, and authority. Reconnection
+  requires explicit revocation first and clears the prior account's
+  selections, cursors, notification channels, and pending uploads.
 - Upgrades with the same authority proceed; scope widening fails with
   `RECONSENT_REQUIRED`.
 - Suspension blocks ordinary behavior. Uninstall stops channels, revokes
@@ -63,7 +66,9 @@ The runtime depends on small structural ports in
 OAuth, Picker session configuration, Drive download/export, resumable upload,
 changes, watch channels, token refresh, and revocation using public HTTPS
 APIs. `Simply360PublicFilePort` implements only documented public file
-surfaces. Lifecycle receipts are delegated to `Simply360LifecyclePort`;
+surfaces, pins signed transfer URLs to an operator-provided exact-origin
+allowlist, and bounds JSON and file response bodies before buffering.
+Lifecycle receipts are delegated to `Simply360LifecyclePort`;
 that seam will bind to `@simply360/integration-sdk` when the package is
 published rather than guessing an internal route.
 
@@ -85,7 +90,8 @@ npm run verify
 2. strict TypeScript checking;
 3. a clean build;
 4. lifecycle, failure, isolation, security, HTTP-adapter, configuration, and
-   artifact tests.
+   artifact tests, with source thresholds of 85% lines, 65% branches, and 85%
+   functions.
 
 The local suite uses only synthetic bytes and deterministic doubles. See
 [`docs/local-conformance.md`](./docs/local-conformance.md) for the acceptance

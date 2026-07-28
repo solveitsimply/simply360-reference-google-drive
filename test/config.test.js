@@ -17,6 +17,7 @@ test('loads an exact dev/test configuration with conservative defaults', () => {
   const config = loadReferenceAppConfig(valid());
   assert.equal(config.googleScope, GOOGLE_DRIVE_SCOPE);
   assert.equal(config.uploadChunkBytes, 8 * 1024 * 1024);
+  assert.equal(config.maximumTransferBytes, 100 * 1024 * 1024);
   assert.equal(config.notificationTtlSeconds, 6 * 24 * 60 * 60);
 });
 

@@ -53,7 +53,7 @@ const harness = () => {
   const telemetry = new InMemoryTelemetrySink();
   const runtime = new GoogleDriveReferenceRuntime(
     { clock, ids, google, simply360, state, telemetry },
-    { uploadChunkBytes: 4, notificationTtlSeconds: 600 },
+    { uploadChunkBytes: 4, maximumTransferBytes: 1_024, notificationTtlSeconds: 600 },
   );
   return { clock, google, simply360, state, telemetry, runtime };
 };
@@ -195,6 +195,23 @@ describe('Google Drive reference lifecycle', () => {
     assert.equal(google.uploads.size, 0);
     assert.equal(state.states.get(install.installationSimplyId).pendingExports.length, 0);
     assert.deepEqual(google.objects.get(link.driveObjectId).bytes, bytes('0123456789'));
+
+    simply360.seedFile({
+      fileSimplyId: 'FILE-RESM-0001',
+      versionNumber: 2,
+      name: 'resumable.txt',
+      contentType: 'text/plain',
+      bytes: bytes('replacement'),
+    });
+    const updated = await runtime.exportFile(install.installationSimplyId, {
+      fileSimplyId: 'FILE-RESM-0001',
+      versionNumber: 2,
+      destinationDriveFolderId: destination.driveObjectId,
+    });
+    assert.equal(updated.linkSimplyId, link.linkSimplyId);
+    assert.equal(updated.driveObjectId, link.driveObjectId);
+    assert.equal(state.states.get(install.installationSimplyId).links.length, 1);
+    assert.deepEqual(google.objects.get(link.driveObjectId).bytes, bytes('replacement'));
   });
 
   test('keeps two installation credential, link, cursor, and revocation boundaries isolated', async () => {
@@ -345,5 +362,21 @@ describe('scope, selection, notification, and lifecycle fences', () => {
     await runtime.reconcile(install.installationSimplyId);
     assert.equal(state.states.get(install.installationSimplyId).links[0].status, 'REMOTE_MISSING');
     assert.equal(simply360.files.has(imported.simply360FileSimplyId), true);
+  });
+
+  test('bounds transfer size and reconciliation work before retaining data', async () => {
+    const { google, state, runtime } = harness();
+    const install = registration();
+    const large = google.seedFile({
+      driveObjectId: 'drive-large',
+      name: 'large.bin',
+      mimeType: 'application/octet-stream',
+      bytes: new Uint8Array(1_025),
+    });
+    await connect(runtime, google, install);
+    await runtime.recordPickerSelection(install.installationSimplyId, pickerFile(large), 'SOURCE');
+    await runtime.activateInstallation(install.installationSimplyId);
+    await assert.rejects(runtime.importSelectedFile(install.installationSimplyId, large.driveObjectId), /transfer limit/u);
+    assert.equal(state.states.get(install.installationSimplyId).links.length, 0);
   });
 });

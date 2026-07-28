@@ -24,6 +24,7 @@ export interface GoogleDriveHttpOptions {
   readonly publicOrigin: string;
   readonly fetch?: Fetch;
   readonly clock?: Clock;
+  readonly maximumChangePages?: number;
 }
 
 const GOOGLE_API_ORIGIN = 'https://www.googleapis.com';
@@ -112,6 +113,7 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
   private readonly fetcher: Fetch;
   private readonly now: () => Date;
   private readonly publicOrigin: string;
+  private readonly maximumChangePages: number;
   private readonly refreshed = new Map<string, CachedAccess>();
 
   constructor(private readonly options: GoogleDriveHttpOptions) {
@@ -121,6 +123,10 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
     this.publicOrigin = exactOrigin(options.publicOrigin, 'publicOrigin');
     this.fetcher = options.fetch ?? fetch;
     this.now = () => options.clock?.now() ?? new Date();
+    this.maximumChangePages = options.maximumChangePages ?? 10;
+    if (!Number.isSafeInteger(this.maximumChangePages) || this.maximumChangePages < 1) {
+      throw new Error('maximumChangePages must be a positive integer.');
+    }
   }
 
   async exchangeAuthorizationCode(request: GoogleAuthorizationRequest): Promise<GoogleCredential> {
@@ -210,23 +216,36 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
 
   async beginResumableUpload(
     credential: GoogleCredential,
-    input: { parentDriveObjectId: string; name: string; contentType: string; sizeBytes: number },
+    input: {
+      parentDriveObjectId: string;
+      name: string;
+      contentType: string;
+      sizeBytes: number;
+      existingDriveObjectId?: string;
+    },
   ): Promise<ResumableUpload> {
+    const path = input.existingDriveObjectId
+      ? `/upload/drive/v3/files/${pathSegment(input.existingDriveObjectId)}`
+      : '/upload/drive/v3/files';
     const response = await this.authorized(
       credential,
-      `${GOOGLE_UPLOAD_ORIGIN}/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=false&fields=id,name,mimeType,size,modifiedTime,md5Checksum,trashed`,
+      `${GOOGLE_UPLOAD_ORIGIN}${path}?uploadType=resumable&supportsAllDrives=false&fields=id,name,mimeType,size,modifiedTime,md5Checksum,trashed`,
       {
-        method: 'POST',
+        method: input.existingDriveObjectId ? 'PATCH' : 'POST',
         headers: {
           'content-type': 'application/json',
           'x-upload-content-type': input.contentType,
           'x-upload-content-length': String(input.sizeBytes),
         },
-        body: JSON.stringify({
-          name: input.name,
-          mimeType: input.contentType,
-          parents: [input.parentDriveObjectId],
-        }),
+        body: JSON.stringify(
+          input.existingDriveObjectId
+            ? { name: input.name, mimeType: input.contentType }
+            : {
+                name: input.name,
+                mimeType: input.contentType,
+                parents: [input.parentDriveObjectId],
+              },
+        ),
       },
     );
     const location = response.headers.get('location');
@@ -247,14 +266,15 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
     if (uploadUrl.protocol !== 'https:' || uploadUrl.origin !== GOOGLE_UPLOAD_ORIGIN || uploadUrl.username || uploadUrl.password) {
       throw new Error('Google resumable upload URL is untrusted.');
     }
-    const end = input.bytes.byteLength === 0 ? input.offset : input.offset + input.bytes.byteLength - 1;
+    const end = input.offset + input.bytes.byteLength - 1;
     const response = await this.fetcher(uploadUrl, {
       method: 'PUT',
       redirect: 'error',
       headers: {
         authorization: `Bearer ${await this.accessToken(credential)}`,
         'content-length': String(input.bytes.byteLength),
-        'content-range': `bytes ${input.offset}-${end}/${input.totalBytes}`,
+        'content-range':
+          input.totalBytes === 0 ? 'bytes */0' : `bytes ${input.offset}-${end}/${input.totalBytes}`,
       },
       body: input.bytes,
     });
@@ -320,7 +340,10 @@ export class GoogleDriveHttpClient implements GoogleDrivePort {
     let pageToken: string | undefined = cursor;
     const changes: GoogleChange[] = [];
     let nextCursor = cursor;
+    let pageCount = 0;
     do {
+      pageCount += 1;
+      if (pageCount > this.maximumChangePages) throw new Error('Google change listing exceeded the configured page limit.');
       const response = await this.authorized(
         credential,
         `${GOOGLE_API_ORIGIN}/drive/v3/changes?pageToken=${encodeURIComponent(pageToken)}&spaces=drive&supportsAllDrives=false&includeItemsFromAllDrives=false&fields=${encodeURIComponent(fields)}`,

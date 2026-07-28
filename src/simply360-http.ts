@@ -18,6 +18,8 @@ export interface Simply360PublicFilePortOptions {
   readonly lifecycle: Simply360LifecyclePort;
   readonly fetch?: Fetch;
   readonly maximumCompletionPolls?: number;
+  readonly completionPollDelayMs?: number;
+  readonly sleep?: (milliseconds: number) => Promise<void>;
 }
 
 interface UploadStatus {
@@ -79,13 +81,20 @@ export class Simply360PublicFilePort implements Simply360Port {
   private readonly apiOrigin: string;
   private readonly fetcher: Fetch;
   private readonly maximumCompletionPolls: number;
+  private readonly completionPollDelayMs: number;
+  private readonly sleep: (milliseconds: number) => Promise<void>;
 
   constructor(private readonly options: Simply360PublicFilePortOptions) {
     this.apiOrigin = exactApiOrigin(options.apiBaseUrl);
     this.fetcher = options.fetch ?? fetch;
     this.maximumCompletionPolls = options.maximumCompletionPolls ?? 300;
+    this.completionPollDelayMs = options.completionPollDelayMs ?? 2_000;
+    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     if (!Number.isSafeInteger(this.maximumCompletionPolls) || this.maximumCompletionPolls < 1) {
       throw new Error('maximumCompletionPolls must be a positive integer.');
+    }
+    if (!Number.isSafeInteger(this.completionPollDelayMs) || this.completionPollDelayMs < 0) {
+      throw new Error('completionPollDelayMs must be a non-negative integer.');
     }
   }
 
@@ -144,6 +153,9 @@ export class Simply360PublicFilePort implements Simply360Port {
       });
       completed = parseUploadStatus(result);
       if (!['SCANNING', 'PROMOTING', 'PENDING_UPLOAD'].includes(completed.status)) break;
+      if (poll + 1 < this.maximumCompletionPolls && this.completionPollDelayMs > 0) {
+        await this.sleep(this.completionPollDelayMs);
+      }
     }
     if (completed.status !== 'COMPLETED' || !completed.fileSimplyId || !completed.versionNumber) {
       throw new Error(completed.rejectionReason ?? `Simply360 upload ended in ${completed.status}.`);

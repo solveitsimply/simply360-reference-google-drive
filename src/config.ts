@@ -10,6 +10,7 @@ export interface ReferenceAppConfig {
   readonly publicOrigin: string;
   readonly googleScope: typeof GOOGLE_DRIVE_SCOPE;
   readonly uploadChunkBytes: number;
+  readonly maximumTransferBytes: number;
   readonly notificationTtlSeconds: number;
 }
 
@@ -53,6 +54,7 @@ export const loadReferenceAppConfig = (environment: NodeJS.ProcessEnv): Referenc
     publicOrigin: exactHttpsOrigin(required(environment, 'PUBLIC_ORIGIN'), 'PUBLIC_ORIGIN'),
     googleScope: GOOGLE_DRIVE_SCOPE,
     uploadChunkBytes: positiveInteger(environment.UPLOAD_CHUNK_BYTES, 8 * 1024 * 1024, 'UPLOAD_CHUNK_BYTES'),
+    maximumTransferBytes: positiveInteger(environment.MAXIMUM_TRANSFER_BYTES, 100 * 1024 * 1024, 'MAXIMUM_TRANSFER_BYTES'),
     notificationTtlSeconds: positiveInteger(environment.NOTIFICATION_TTL_SECONDS, 6 * 24 * 60 * 60, 'NOTIFICATION_TTL_SECONDS'),
   };
 };

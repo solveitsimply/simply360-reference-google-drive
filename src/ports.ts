@@ -30,7 +30,13 @@ export interface GoogleDrivePort {
   downloadObject(credential: GoogleCredential, driveObjectId: string): Promise<GoogleDownload>;
   beginResumableUpload(
     credential: GoogleCredential,
-    input: { parentDriveObjectId: string; name: string; contentType: string; sizeBytes: number },
+    input: {
+      parentDriveObjectId: string;
+      name: string;
+      contentType: string;
+      sizeBytes: number;
+      existingDriveObjectId?: string;
+    },
   ): Promise<ResumableUpload>;
   uploadChunk(
     credential: GoogleCredential,

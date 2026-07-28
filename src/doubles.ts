@@ -64,6 +64,7 @@ interface PendingDriveUpload {
   readonly name: string;
   readonly contentType: string;
   readonly sizeBytes: number;
+  readonly existingDriveObjectId?: string;
   bytes: Uint8Array;
   nextOffset: number;
 }
@@ -183,7 +184,13 @@ export class GoogleDriveDouble implements GoogleDrivePort {
 
   async beginResumableUpload(
     credential: GoogleCredential,
-    input: { parentDriveObjectId: string; name: string; contentType: string; sizeBytes: number },
+    input: {
+      parentDriveObjectId: string;
+      name: string;
+      contentType: string;
+      sizeBytes: number;
+      existingDriveObjectId?: string;
+    },
   ): Promise<ResumableUpload> {
     this.assertCredential(credential);
     const parent = this.objects.get(input.parentDriveObjectId);
@@ -224,7 +231,7 @@ export class GoogleDriveDouble implements GoogleDrivePort {
     if (upload.nextOffset !== upload.sizeBytes) throw new Error('Drive upload exceeded declared size.');
 
     this.objectCounter += 1;
-    const driveObjectId = `drive-export-${this.objectCounter}`;
+    const driveObjectId = upload.existingDriveObjectId ?? `drive-export-${this.objectCounter}`;
     const object: GoogleDriveObject = {
       driveObjectId,
       name: upload.name,

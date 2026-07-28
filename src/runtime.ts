@@ -18,6 +18,8 @@ import type { InstallationState, PendingExport, StoredNotification } from './sta
 
 export interface ReferenceRuntimeOptions {
   readonly uploadChunkBytes?: number;
+  readonly maximumTransferBytes?: number;
+  readonly maximumChangesPerReconciliation?: number;
   readonly notificationTtlSeconds?: number;
 }
 
@@ -68,7 +70,7 @@ const selectionKey = (selection: Pick<ExplicitSelection, 'driveObjectId' | 'kind
   `${selection.kind}:${selection.driveObjectId}`;
 
 const linkKey = (direction: LinkDirection, driveObjectId: string, simply360FileSimplyId: string): string =>
-  `${direction}:${driveObjectId}:${simply360FileSimplyId}`;
+  direction === 'SOURCE' ? `${direction}:${driveObjectId}` : `${direction}:${simply360FileSimplyId}`;
 
 const operationKey = (...values: readonly string[]): string => sha256Hex(values.join('\u0000'));
 
@@ -78,6 +80,8 @@ const assertFinitePositiveInteger = (value: number, label: string): void => {
 
 export class GoogleDriveReferenceRuntime {
   private readonly uploadChunkBytes: number;
+  private readonly maximumTransferBytes: number;
+  private readonly maximumChangesPerReconciliation: number;
   private readonly notificationTtlSeconds: number;
 
   constructor(
@@ -85,13 +89,21 @@ export class GoogleDriveReferenceRuntime {
     options: ReferenceRuntimeOptions = {},
   ) {
     this.uploadChunkBytes = options.uploadChunkBytes ?? 8 * 1024 * 1024;
+    this.maximumTransferBytes = options.maximumTransferBytes ?? 100 * 1024 * 1024;
+    this.maximumChangesPerReconciliation = options.maximumChangesPerReconciliation ?? 1_000;
     this.notificationTtlSeconds = options.notificationTtlSeconds ?? 6 * 24 * 60 * 60;
     assertFinitePositiveInteger(this.uploadChunkBytes, 'uploadChunkBytes');
+    assertFinitePositiveInteger(this.maximumTransferBytes, 'maximumTransferBytes');
+    assertFinitePositiveInteger(this.maximumChangesPerReconciliation, 'maximumChangesPerReconciliation');
     assertFinitePositiveInteger(this.notificationTtlSeconds, 'notificationTtlSeconds');
   }
 
   async registerInstallation(installation: InstallationRegistration): Promise<InstallationSnapshot> {
     assertSimply360Credential(installation);
+    const credentialExpiry = new Date(installation.credential.expiresAt).getTime();
+    if (!Number.isFinite(credentialExpiry) || credentialExpiry <= this.ports.clock.now().getTime()) {
+      throw new ReferenceRuntimeError('INVALID_CREDENTIAL', 'Simply360 installation credential is expired.');
+    }
     const existing = await this.ports.state.load(installation.installationSimplyId);
     if (existing) {
       if (
@@ -127,6 +139,9 @@ export class GoogleDriveReferenceRuntime {
       if (granted.size !== 1 || !granted.has(GOOGLE_DRIVE_SCOPE)) {
         await this.ports.google.revokeCredential(credential);
         throw new ReferenceRuntimeError('NOT_AUTHORIZED', `Google must grant exactly ${GOOGLE_DRIVE_SCOPE}.`);
+      }
+      if (state.googleCredential && state.googleConnectionStatus === 'ACTIVE') {
+        await this.ports.google.revokeCredential(state.googleCredential);
       }
       const next = this.touch({ ...state, googleCredential: credential, googleConnectionStatus: 'ACTIVE' });
       await this.save(next);
@@ -216,7 +231,13 @@ export class GoogleDriveReferenceRuntime {
       if (object.trashed || object.mimeType === GOOGLE_FOLDER_MIME_TYPE) {
         throw new ReferenceRuntimeError('INVALID_SELECTION', 'The selected source file is unavailable.');
       }
+      if (object.sizeBytes > this.maximumTransferBytes) {
+        throw new ReferenceRuntimeError('NOT_AUTHORIZED', 'Selected Google Drive file exceeds the configured transfer limit.');
+      }
       const download = await this.ports.google.downloadObject(credential, driveObjectId);
+      if (download.bytes.byteLength > this.maximumTransferBytes) {
+        throw new ReferenceRuntimeError('NOT_AUTHORIZED', 'Downloaded Google Drive content exceeds the configured transfer limit.');
+      }
       const checksum = sha256Base64(download.bytes);
       const existing = state.links.find((link) => link.direction === 'SOURCE' && link.driveObjectId === driveObjectId);
       const imported = await this.ports.simply360.importFile(state.installation, {
@@ -259,6 +280,9 @@ export class GoogleDriveReferenceRuntime {
         throw new ReferenceRuntimeError('INVALID_SELECTION', 'The selected destination folder is unavailable.');
       }
       const file = await this.ports.simply360.downloadFile(state.installation, input.fileSimplyId, input.versionNumber);
+      if (file.bytes.byteLength > this.maximumTransferBytes) {
+        throw new ReferenceRuntimeError('NOT_AUTHORIZED', 'Simply360 file exceeds the configured transfer limit.');
+      }
       const checksum = sha256Base64(file.bytes);
       if (checksum !== file.checksumSha256Base64) {
         throw new ReferenceRuntimeError('INVALID_STATE', 'Simply360 download checksum did not match its public metadata.');
@@ -272,12 +296,16 @@ export class GoogleDriveReferenceRuntime {
       );
       let pending = state.pendingExports.find((candidate) => candidate.operationKey === key);
       let workingState = state;
+      const existing = state.links.find(
+        (link) => link.direction === 'DESTINATION' && link.simply360FileSimplyId === input.fileSimplyId,
+      );
       if (!pending) {
         const started = await this.ports.google.beginResumableUpload(credential, {
           parentDriveObjectId: input.destinationDriveFolderId,
           name: input.name ?? file.name,
           contentType: file.contentType,
           sizeBytes: file.bytes.byteLength,
+          ...(existing ? { existingDriveObjectId: existing.driveObjectId } : {}),
         });
         pending = {
           operationKey: key,
@@ -296,7 +324,7 @@ export class GoogleDriveReferenceRuntime {
       }
       const uploaded = await this.finishUpload(workingState, pending, credential, file.bytes);
       const refreshed = await this.requireState(installationSimplyId);
-      const existing = refreshed.links.find(
+      const refreshedExisting = refreshed.links.find(
         (link) => link.direction === 'DESTINATION' && link.simply360FileSimplyId === input.fileSimplyId,
       );
       const link = this.makeLink(refreshed, {
@@ -305,7 +333,7 @@ export class GoogleDriveReferenceRuntime {
         simply360FileSimplyId: file.fileSimplyId,
         simply360VersionNumber: file.versionNumber,
         checksumSha256Base64: checksum,
-        existing,
+        existing: refreshedExisting,
       });
       const next = this.touch({
         ...refreshed,
@@ -348,7 +376,11 @@ export class GoogleDriveReferenceRuntime {
           channel.resourceId === headers.resourceId &&
           constantTimeEqual(channel.channelToken, headers.channelToken),
       );
-      if (!stored || !/^\d+$/u.test(headers.messageNumber)) {
+      if (
+        !stored ||
+        !/^\d{1,30}$/u.test(headers.messageNumber) ||
+        !['sync', 'change', 'update', 'trash', 'remove', 'add'].includes(headers.resourceState)
+      ) {
         throw new ReferenceRuntimeError('INVALID_NOTIFICATION', 'Google notification authority is invalid.');
       }
       if (new Date(stored.channel.expiresAt).getTime() <= this.ports.clock.now().getTime()) {
@@ -373,6 +405,9 @@ export class GoogleDriveReferenceRuntime {
       this.assertActive(state);
       const credential = this.requireGoogleCredential(state);
       const page = await this.ports.google.listChanges(credential, state.changeCursor);
+      if (page.changes.length > this.maximumChangesPerReconciliation) {
+        throw new ReferenceRuntimeError('NOT_AUTHORIZED', 'Google change batch exceeds the configured reconciliation limit.');
+      }
       let working = state;
       let imported = 0;
       let missing = 0;
@@ -513,6 +548,15 @@ export class GoogleDriveReferenceRuntime {
     bytes: Uint8Array,
   ): Promise<GoogleDriveObject> {
     let offset = pending.nextOffset;
+    if (bytes.byteLength === 0 && offset === 0) {
+      const result = await this.ports.google.uploadChunk(credential, pending.uploadId, {
+        bytes: new Uint8Array(),
+        offset: 0,
+        totalBytes: 0,
+      });
+      if ('driveObjectId' in result) return result;
+      throw new ReferenceRuntimeError('INVALID_STATE', 'Google did not commit an empty resumable upload.');
+    }
     while (offset < bytes.byteLength) {
       const chunk = bytes.slice(offset, Math.min(offset + this.uploadChunkBytes, bytes.byteLength));
       const result = await this.ports.google.uploadChunk(credential, pending.uploadId, {

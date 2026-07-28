@@ -26,6 +26,14 @@ export interface ReferenceRuntimeOptions {
   readonly notificationTtlSeconds?: number;
 }
 
+export interface AuthorizedNotification {
+  readonly channelId: string;
+  readonly resourceId: string;
+  readonly channelTokenSha256: string;
+  readonly messageNumber: string;
+  readonly resourceState: string;
+}
+
 export class ReferenceRuntimeError extends Error {
   constructor(
     readonly code:
@@ -446,7 +454,17 @@ export class GoogleDriveReferenceRuntime {
         channelToken: this.ports.ids.secret(32),
         expiresAt,
       });
-      const next = this.touch({ ...state, notifications: [...state.notifications, { channel }] });
+      const { channelToken, ...persistedChannel } = channel;
+      const next = this.touch({
+        ...state,
+        notifications: [
+          ...state.notifications,
+          {
+            channel: persistedChannel,
+            channelTokenSha256: sha256Hex(channelToken),
+          },
+        ],
+      });
       await this.save(next);
       await this.emit(next, 'notification.started', { channelIdHash: sha256Hex(channel.channelId) });
       return channel;
@@ -454,13 +472,68 @@ export class GoogleDriveReferenceRuntime {
   }
 
   async handleChangeNotification(installationSimplyId: string, headers: NotificationHeaders): Promise<InstallationSnapshot> {
+    const authorized = await this.authorizeChangeNotification(
+      installationSimplyId,
+      headers,
+    );
+    return this.handleAuthorizedChangeNotification(
+      installationSimplyId,
+      authorized,
+    );
+  }
+
+  async authorizeChangeNotification(
+    installationSimplyId: string,
+    headers: NotificationHeaders,
+  ): Promise<AuthorizedNotification> {
+    const state = await this.requireState(installationSimplyId);
+    this.assertActive(state);
+    const channelTokenSha256 = sha256Hex(headers.channelToken);
+    const stored = state.notifications.find(
+      ({ channel, channelTokenSha256: expected }) =>
+        channel.channelId === headers.channelId &&
+        channel.resourceId === headers.resourceId &&
+        constantTimeEqual(expected, channelTokenSha256),
+    );
+    if (
+      !stored ||
+      !/^\d{1,30}$/u.test(headers.messageNumber) ||
+      !['sync', 'change', 'update', 'trash', 'remove', 'add'].includes(headers.resourceState)
+    ) {
+      throw new ReferenceRuntimeError(
+        'INVALID_NOTIFICATION',
+        'Google notification authority is invalid.',
+      );
+    }
+    if (
+      new Date(stored.channel.expiresAt).getTime() <=
+      this.ports.clock.now().getTime()
+    ) {
+      throw new ReferenceRuntimeError(
+        'INVALID_NOTIFICATION',
+        'Google notification channel has expired.',
+      );
+    }
+    return {
+      channelId: headers.channelId,
+      resourceId: headers.resourceId,
+      channelTokenSha256,
+      messageNumber: headers.messageNumber,
+      resourceState: headers.resourceState,
+    };
+  }
+
+  async handleAuthorizedChangeNotification(
+    installationSimplyId: string,
+    headers: AuthorizedNotification,
+  ): Promise<InstallationSnapshot> {
     return this.withFailureTelemetry(installationSimplyId, 'notification.handle', async (state) => {
       this.assertActive(state);
       const stored = state.notifications.find(
-        ({ channel }) =>
+        ({ channel, channelTokenSha256 }) =>
           channel.channelId === headers.channelId &&
           channel.resourceId === headers.resourceId &&
-          constantTimeEqual(channel.channelToken, headers.channelToken),
+          constantTimeEqual(channelTokenSha256, headers.channelTokenSha256),
       );
       if (
         !stored ||
@@ -487,7 +560,11 @@ export class GoogleDriveReferenceRuntime {
       if (current.lastMessageNumber !== undefined && BigInt(current.lastMessageNumber) >= BigInt(headers.messageNumber)) {
         return this.snapshot(reconciled);
       }
-      const updatedNotification: StoredNotification = { channel: current.channel, lastMessageNumber: headers.messageNumber };
+      const updatedNotification: StoredNotification = {
+        channel: current.channel,
+        channelTokenSha256: current.channelTokenSha256,
+        lastMessageNumber: headers.messageNumber,
+      };
       const checkpointed = this.touch({
         ...reconciled,
         notifications: reconciled.notifications.map((candidate) =>
@@ -545,7 +622,10 @@ export class GoogleDriveReferenceRuntime {
       }
       const credential = this.requireGoogleCredential(state);
       for (const { channel } of state.notifications) {
-        await this.ports.google.stopChangeNotifications(credential, channel);
+        await this.ports.google.stopChangeNotifications(credential, {
+          ...channel,
+          channelToken: '',
+        });
       }
       await this.ports.google.revokeCredential(credential);
       await this.ports.simply360.reportProviderHealth(state.installation, {
@@ -614,7 +694,10 @@ export class GoogleDriveReferenceRuntime {
       if (state.status === 'UNINSTALLED') return this.snapshot(state);
       if (state.googleCredential) {
         for (const { channel } of state.notifications) {
-          await this.ports.google.stopChangeNotifications(state.googleCredential, channel);
+          await this.ports.google.stopChangeNotifications(
+            state.googleCredential,
+            { ...channel, channelToken: '' },
+          );
         }
         await this.ports.google.revokeCredential(state.googleCredential);
       }

@@ -441,7 +441,10 @@ export class GoogleDriveReferenceRouter {
       }
       return jsonResponse(400, {
         error: 'REQUEST_REJECTED',
-        message: error instanceof Error ? error.message : 'request failed',
+        // Parser and adapter errors can embed snippets of hostile request
+        // bodies or credential-bearing provider responses. Do not reflect
+        // those details through the public error envelope.
+        message: 'The request was rejected.',
       });
     }
   }

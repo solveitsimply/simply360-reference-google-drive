@@ -424,6 +424,25 @@ describe('durable state and bounded router seam', () => {
       ).status,
       400,
     );
+    const rejected = await router.handle(
+      new Request(
+        `https://example.test/installations/${registration.installationSimplyId}/reconcile`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${registration.credential.accessToken}`,
+            'content-type': 'application/json',
+            'idempotency-key': 'malformed-request-0001',
+          },
+          body: '{"refreshToken":"must-not-leak",',
+        },
+      ),
+    );
+    assert.equal(rejected.status, 400);
+    assert.deepEqual(await rejected.json(), {
+      error: 'REQUEST_REJECTED',
+      message: 'The request was rejected.',
+    });
     for (const [token, expectedStatus] of [
       ['aws-unavailable-token', 503],
       ['concurrent-update-token', 409],

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import {
+  assertExactArtifactSource,
+  renderReferenceArtifacts,
+} from '../scripts/render-artifacts.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const sourceCommit = '0123456789abcdef0123456789abcdef01234567';
@@ -18,11 +21,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
 test('renders source-bound manifest, Blueprint package, and exact checksums', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'reference-drive-artifacts-'));
-  execFileSync(
-    process.execPath,
-    ['scripts/render-artifacts.mjs', '--source-commit', sourceCommit, '--output', directory],
-    { cwd: root, stdio: 'pipe' },
-  );
+  await renderReferenceArtifacts({ sourceCommit, outputDirectory: directory });
   const manifestText = await readFile(join(directory, 'app-manifest.json'), 'utf8');
   const blueprintText = await readFile(join(directory, 'drive-file-links.package.json'), 'utf8');
   const checksums = JSON.parse(await readFile(join(directory, 'checksums.json'), 'utf8'));
@@ -44,14 +43,30 @@ test('renders source-bound manifest, Blueprint package, and exact checksums', as
   assert.doesNotMatch(`${manifestText}${blueprintText}`, /__[A-Z_]+__/u);
 });
 
-test('artifact rendering rejects non-SHA provenance', () => {
+test('artifact publication requires the exact clean checked-out source', () => {
+  assert.doesNotThrow(() =>
+    assertExactArtifactSource({
+      sourceCommit,
+      checkedOutCommit: sourceCommit,
+      worktreeIsClean: true,
+    }),
+  );
+  assert.throws(
+    () => assertExactArtifactSource({ sourceCommit: 'dev', checkedOutCommit: 'dev', worktreeIsClean: true }),
+    /exact lowercase 40-character Git SHA/u,
+  );
   assert.throws(
     () =>
-      execFileSync(process.execPath, ['scripts/render-artifacts.mjs', '--source-commit', 'dev'], {
-        cwd: root,
-        stdio: 'pipe',
+      assertExactArtifactSource({
+        sourceCommit,
+        checkedOutCommit: '1'.repeat(40),
+        worktreeIsClean: true,
       }),
-    /Command failed/u,
+    /must match the checked-out Git commit/u,
+  );
+  assert.throws(
+    () => assertExactArtifactSource({ sourceCommit, checkedOutCommit: sourceCommit, worktreeIsClean: false }),
+    /clean Git worktree/u,
   );
 });
 

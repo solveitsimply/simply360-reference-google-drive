@@ -124,7 +124,9 @@ npm run artifacts -- --source-commit "$(git rev-parse HEAD)"
 ```
 
 This writes `build/artifacts/app-manifest.json`, the Blueprint package, and an
-exact checksum manifest. `build/` is intentionally ignored.
+exact checksum manifest. The command rejects an abbreviated or mismatched
+commit and refuses to publish from a dirty worktree. `build/` is intentionally
+ignored.
 
 ## Provisioning and live acceptance
 

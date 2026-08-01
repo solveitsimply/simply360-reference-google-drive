@@ -2,10 +2,11 @@
 
 No AWS resource is created by this repository. The reviewed, dev-only source
 templates are [`dev.template.yaml`](./dev.template.yaml) and
-[`oidc-roles.template.yaml`](./oidc-roles.template.yaml). Provisioning remains
-blocked until the owner supplies the exact certificate, hosted-zone,
-artifact-bucket, and transfer-origin inputs and the public Simply360 lifecycle
-client is published. The runtime stack creates empty repository-scoped Secrets
+[`oidc-roles.template.yaml`](./oidc-roles.template.yaml). The NonProd hosted
+zone and requested certificate are recorded below. Provisioning remains blocked
+until the owner supplies the artifact-bucket and transfer-origin inputs, the
+certificate is issued, and the public Simply360 lifecycle client is published.
+The runtime stack creates empty repository-scoped Secrets
 Manager containers and outputs their ARNs; it never takes credential values or
 secret ARNs as deployment inputs.
 
@@ -18,10 +19,14 @@ revoked secrets explicitly after the reference installation is removed.
 | Setting | Value |
 | --- | --- |
 | Repository | `solveitsimply/simply360-reference-google-drive` |
+| Repository ID | `1305919039` |
+| Repository owner ID | `67548625` |
 | Active/default branch | protected `dev` |
 | AWS region | `us-east-1` |
 | Stack | `Simply360ReferenceGoogleDriveDev` |
 | Runtime origin | `https://reference-drive.dev.simply360.app` |
+| Hosted zone | `dev.simply360.app` (`Z0784342XIP781QDXCJA`) |
+| Requested certificate | `arn:aws:acm:us-east-1:592668326732:certificate/116700f1-a9d4-48bd-9729-e11343f7b062` |
 | Google project | `simply360-reference-drive-dev-<globally-unique-suffix>` |
 | Google brand | `Simply360 Reference Files (Dev)` |
 
@@ -36,7 +41,7 @@ require all of:
 
 - audience `sts.amazonaws.com`;
 - subject
-  `repo:solveitsimply/simply360-reference-google-drive:ref:refs/heads/dev`;
+  `repo:solveitsimply@67548625/simply360-reference-google-drive@1305919039:environment:dev`;
 - protected GitHub `dev` environment;
 - no pull-request, tag, wildcard branch, or `main` subject.
 
@@ -127,8 +132,8 @@ spend exceeds $25/month.
    ARN. Record the two output role ARNs.
 5. Configure the protected GitHub `dev` environment to allow only `dev`, then
    store only non-secret role/certificate/hosted-zone/artifact configuration.
-   The deploy role trust pins
-   `repo:solveitsimply/simply360-reference-google-drive:environment:dev`.
+   The deploy role trust pins the repository's immutable owner/repository IDs in
+   `repo:solveitsimply@67548625/simply360-reference-google-drive@1305919039:environment:dev`.
 6. Deploy the exact accepted repository SHA through the pinned workflow only
    after the public lifecycle client is published.
 7. Enter secret values directly into the output Secrets Manager ARNs; do not
@@ -143,7 +148,9 @@ before any guessed Simply360 lifecycle endpoint can be called. Installation
 bootstrap is disabled in the template. Bind the published public client and
 its documented service-principal installation flow before live acceptance.
 
-GitHub's OIDC subject changes to `repo:...:environment:dev` when a protected
-environment is used, so it cannot simultaneously be the `ref:refs/heads/dev`
-subject. The role therefore pins the protected `dev` environment; the
+GitHub's OIDC subject uses `:environment:dev` when a protected environment is
+used, so it cannot simultaneously be the `ref:refs/heads/dev` subject. Because
+this repository was created after GitHub's immutable-subject cutoff, its `repo`
+segment also contains owner ID `67548625` and repository ID `1305919039`. The
+role therefore pins that immutable protected-environment subject; the
 environment's deployment-branch rule must independently allow only `dev`.

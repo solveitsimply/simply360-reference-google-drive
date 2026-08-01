@@ -145,31 +145,31 @@ Resources:
       Policies:
         - AWSXrayWriteOnlyAccess
         - Statement:
-            - Sid: StateTables
+            - Sid: ReadWriteInstallationState
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+              Resource: !GetAtt StateTable.Arn
+            - Sid: RunIdempotentWork
               Effect: Allow
               Action:
                 - dynamodb:DeleteItem
                 - dynamodb:GetItem
                 - dynamodb:PutItem
-                - dynamodb:Query
                 - dynamodb:UpdateItem
-              Resource:
-                - !GetAtt StateTable.Arn
-                - !GetAtt IdempotencyTable.Arn
-                - !GetAtt AuthorityTable.Arn
-                - !GetAtt OutboxTable.Arn
-                - !Sub ${OutboxTable.Arn}/index/StatusCreatedAtIndex
+              Resource: !GetAtt IdempotencyTable.Arn
+            - Sid: CompleteOutboxWork
+              Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt OutboxTable.Arn
             - Sid: ConsumeWork
               Effect: Allow
               Action:
-                - sqs:ChangeMessageVisibility
                 - sqs:DeleteMessage
                 - sqs:GetQueueAttributes
                 - sqs:ReceiveMessage
-                - sqs:SendMessage
-              Resource:
-                - !GetAtt WorkQueue.Arn
-                - !GetAtt DeadLetterQueue.Arn
+              Resource: !GetAtt WorkQueue.Arn
             - Sid: ReadExactSecrets
               Effect: Allow
               Action: secretsmanager:GetSecretValue

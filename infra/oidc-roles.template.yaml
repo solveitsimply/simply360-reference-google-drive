@@ -166,7 +166,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: repo:solveitsimply/simply360-reference-google-drive:environment:dev
+                token.actions.githubusercontent.com:sub: repo:solveitsimply@67548625/simply360-reference-google-drive@1305919039:environment:dev
       Policies:
         - PolicyName: DeployExactDevStack
           PolicyDocument:

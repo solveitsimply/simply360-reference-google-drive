@@ -10,7 +10,8 @@ Simply360 records, tickets, chat, CI logs, or this repository.
 1. Sign in to Google Cloud Console with the platform-owner account.
 2. Create a project named `Simply360 Reference Files (Dev)`.
 3. Use project ID
-   `simply360-reference-drive-dev-<globally-unique-suffix>`.
+   `simply360-reference-files-dev` (the available ID Google generated and the
+   owner accepted on 2026-07-31).
 4. Do not link a paid service or enable a paid Marketplace product. If Google
    requires billing or projected recurring spend is non-zero beyond normal
    free quotas, stop and re-authorize the cost.

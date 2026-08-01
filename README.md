@@ -138,7 +138,7 @@ Owner-interactive steps are explicit:
 
 Until those steps are completed, the truthful remaining blockers are:
 
-1. `simply360-reference-drive-dev-<globally-unique-suffix>` and the
+1. `simply360-reference-files-dev` and the
    `Simply360 Reference Files (Dev)` Google OAuth brand/client do not exist;
 2. no approved synthetic Google test user or Google OAuth/Picker credential is
    available;

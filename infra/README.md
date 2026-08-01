@@ -27,7 +27,7 @@ revoked secrets explicitly after the reference installation is removed.
 | Runtime origin | `https://reference-drive.dev.simply360.app` |
 | Hosted zone | `dev.simply360.app` (`Z0784342XIP781QDXCJA`) |
 | Requested certificate | `arn:aws:acm:us-east-1:592668326732:certificate/116700f1-a9d4-48bd-9729-e11343f7b062` |
-| Google project | `simply360-reference-drive-dev-<globally-unique-suffix>` |
+| Google project | `simply360-reference-files-dev` |
 | Google brand | `Simply360 Reference Files (Dev)` |
 
 Creating/promoting `main`, production trust, production resources, customer

@@ -33,6 +33,9 @@ jobs:
       - name: Public-boundary scan
         run: npm run check:boundary
 
+      - name: Infrastructure invariant scan (no deploy)
+        run: npm run check:infra
+
       - name: Type-check
         run: npm run type-check
 

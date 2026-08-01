@@ -3,9 +3,15 @@
 No AWS resource is created by this repository. The reviewed, dev-only source
 templates are [`dev.template.yaml`](./dev.template.yaml) and
 [`oidc-roles.template.yaml`](./oidc-roles.template.yaml). Provisioning remains
-blocked until the owner supplies the exact certificate, hosted-zone, secret,
+blocked until the owner supplies the exact certificate, hosted-zone,
 artifact-bucket, and transfer-origin inputs and the public Simply360 lifecycle
-client is published.
+client is published. The runtime stack creates empty repository-scoped Secrets
+Manager containers and outputs their ARNs; it never takes credential values or
+secret ARNs as deployment inputs.
+
+The secret containers use CloudFormation retain policies. Stack deletion cannot
+silently destroy credentials; a reviewed teardown must remove the two empty or
+revoked secrets explicitly after the reference installation is removed.
 
 ## Fixed ownership and names
 
@@ -47,8 +53,9 @@ secret values or assume monorepo/evidence/production roles.
   notification/change cursors, point-in-time recovery, and TTL for transient
   OAuth/PKCE/upload state;
 - SQS work queue plus DLQ for bounded reconciliation/transfer work;
-- references to two owner-created repository-scoped Secrets Manager entries
-  for Google OAuth/Picker material and Simply360 lifecycle HMAC keys;
+- two empty repository-scoped Secrets Manager containers for Google OAuth/Picker
+  material and Simply360 lifecycle HMAC keys; only the owner adds values after
+  stack creation;
 - seven-day CloudWatch log retention with alarms for DLQ depth, error rate,
   throttles, and oldest work age;
 - least-privilege runtime role for only its tables, queues, logs, and exact
@@ -79,9 +86,12 @@ GOOGLE_OAUTH_SCOPE=https://www.googleapis.com/auth/drive.file
 contract or deployed-dev readback; do not guess a wildcard, accept arbitrary
 HTTPS, or infer trust from a signed URL alone. The derived Google callback is
 exactly `${PUBLIC_ORIGIN}/oauth/google/callback`. Google/Simply360 client
-credentials, the restricted Picker key, and lifecycle HMAC keys remain
-secret-manager inputs, not environment literals committed here. The Google
-secret JSON requires `clientId`, `clientSecret`, `pickerAppId`, and
+credentials, the restricted Picker key, and lifecycle HMAC keys remain Secrets
+Manager values, not environment literals committed here. After stack creation,
+write values directly into the output `GoogleRuntimeSecretArn` and
+`Simply360LifecycleSecretArn`; no GitHub variable, workflow input, shell
+history, or repository file may contain them. The Google secret JSON requires
+`clientId`, `clientSecret`, `pickerAppId`, and
 `pickerDeveloperKey`. The Simply360 secret requires one or two
 `lifecycleWebhookKeys` entries with `keyId` and at least 32-byte `secret`.
 
@@ -105,17 +115,28 @@ spend exceeds $25/month.
 1. Complete [Google Cloud provisioning](../docs/provision-google.md).
 2. Complete the npm/public-package and private-app prerequisites in
    [Simply360 provisioning](../docs/provision-simply360.md).
-3. Re-run `npm run verify` plus `sam validate --lint` for both source
-   templates and review the packaged change set.
-4. Create the dev-only OIDC role and GitHub `dev` environment only after the
-   template's resource/cost review.
-5. Deploy the exact accepted repository SHA through pinned GitHub Actions.
-6. Enter secrets directly into Secrets Manager; do not expose them to the
-   deploy workflow.
-7. Read back stack outputs, role trust/policies, secret metadata, concurrency,
+3. Re-run `npm run verify` plus `sam validate --lint` for the runtime template
+   and `aws cloudformation validate-template --template-body file://infra/oidc-roles.template.yaml`
+   under an approved read-only operator session; review the packaged change set.
+4. Bootstrap `oidc-roles.template.yaml` once with an existing NonProd human
+   operator/organization bootstrap role. This is intentionally **not** done by
+   GitHub: the GitHub role and CloudFormation execution role are resources
+   created by that bootstrap stack, so allowing a not-yet-created role to create
+   itself would be a privilege-escalation loop. Pass `CAPABILITY_NAMED_IAM`, the
+   existing organization OIDC-provider ARN, and the pre-created artifact-bucket
+   ARN. Record the two output role ARNs.
+5. Configure the protected GitHub `dev` environment to allow only `dev`, then
+   store only non-secret role/certificate/hosted-zone/artifact configuration.
+   The deploy role trust pins
+   `repo:solveitsimply/simply360-reference-google-drive:environment:dev`.
+6. Deploy the exact accepted repository SHA through the pinned workflow only
+   after the public lifecycle client is published.
+7. Enter secret values directly into the output Secrets Manager ARNs; do not
+   expose them to the deploy workflow.
+8. Read back stack outputs, role trust/policies, secret metadata, concurrency,
    TTL/PITR, queue/DLQ, log retention, alarms, and custom-origin TLS.
-8. Execute live acceptance and record exact repo/deployed SHAs.
-9. Remove synthetic files/installations and verify TTL/DLQ/queue cleanup.
+9. Execute live acceptance and record exact repo/deployed SHAs.
+10. Remove synthetic files/installations and verify TTL/DLQ/queue cleanup.
 
 The remaining lifecycle-client blocker is intentional: the handler throws
 before any guessed Simply360 lifecycle endpoint can be called. Installation

@@ -11,12 +11,13 @@
   "scripts": {
     "check:boundary": "node scripts/check-public-boundary.mjs",
     "check:lifecycle-contract": "node scripts/check-public-lifecycle-contract.mjs",
+    "check:infra": "node scripts/check-infra.mjs",
     "artifacts": "node scripts/render-artifacts.mjs",
     "type-check": "tsc --noEmit",
     "build": "tsc",
     "test": "npm run build && node --test test/*.test.js",
     "test:coverage": "npm run build && node --experimental-test-coverage --test-coverage-include='dist/**/*.js' --test-coverage-lines=85 --test-coverage-branches=65 --test-coverage-functions=85 --test test/*.test.js",
-    "verify": "npm run check:boundary && npm run check:lifecycle-contract && npm run type-check && npm run test:coverage"
+    "verify": "npm run check:boundary && npm run check:lifecycle-contract && npm run check:infra && npm run type-check && npm run test:coverage"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

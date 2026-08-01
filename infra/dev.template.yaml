@@ -13,12 +13,6 @@ Parameters:
   HostedZoneId:
     Type: String
     AllowedPattern: '^Z[A-Z0-9]+$'
-  GoogleSecretArn:
-    Type: String
-    AllowedPattern: '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:simply360/reference-drive/dev/google-[A-Za-z0-9/_+=.@-]+$'
-  Simply360SecretArn:
-    Type: String
-    AllowedPattern: '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:simply360/reference-drive/dev/simply360-[A-Za-z0-9/_+=.@-]+$'
   Simply360TransferOrigins:
     Type: String
     Description: Comma-separated exact HTTPS origins read from the published dev file API contract. No defaults are safe.
@@ -38,8 +32,8 @@ Globals:
         SIMPLY360_API_BASE_URL: https://api.dev.simply360.app
         SIMPLY360_TRANSFER_ORIGINS: !Ref Simply360TransferOrigins
         GOOGLE_OAUTH_SCOPE: https://www.googleapis.com/auth/drive.file
-        GOOGLE_SECRET_ARN: !Ref GoogleSecretArn
-        SIMPLY360_SECRET_ARN: !Ref Simply360SecretArn
+        GOOGLE_SECRET_ARN: !Ref GoogleRuntimeSecret
+        SIMPLY360_SECRET_ARN: !Ref Simply360LifecycleSecret
         STATE_TABLE_NAME: !Ref StateTable
         IDEMPOTENCY_TABLE_NAME: !Ref IdempotencyTable
         AUTHORITY_TABLE_NAME: !Ref AuthorityTable
@@ -48,10 +42,39 @@ Globals:
         ENABLE_INSTALLATION_BOOTSTRAP: 'false'
 
 Resources:
+  # No SecretString is declared: the owner writes provider credentials directly
+  # into these containers only after reviewing the stack output ARNs.
+  GoogleRuntimeSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: s360/reference-drive/dev/google
+      Description: Google Drive reference-dev OAuth and Picker credentials; owner-managed.
+      Tags:
+        - Key: simply360:reference-repository
+          Value: simply360-reference-google-drive
+        - Key: simply360:environment
+          Value: dev
+
+  Simply360LifecycleSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: s360/reference-drive/dev/simply360
+      Description: Simply360 lifecycle webhook signing keys; owner-managed.
+      Tags:
+        - Key: simply360:reference-repository
+          Value: simply360-reference-google-drive
+        - Key: simply360:environment
+          Value: dev
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: '$default'
+      DisableExecuteApiEndpoint: true
       FailOnWarnings: true
       AccessLogSettings:
         DestinationArn: !GetAtt ApiAccessLogGroup.Arn
@@ -89,8 +112,8 @@ Resources:
               Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource:
-                - !Ref GoogleSecretArn
-                - !Ref Simply360SecretArn
+                - !Ref GoogleRuntimeSecret
+                - !Ref Simply360LifecycleSecret
       Events:
         Api:
           Type: HttpApi
@@ -151,8 +174,8 @@ Resources:
               Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource:
-                - !Ref GoogleSecretArn
-                - !Ref Simply360SecretArn
+                - !Ref GoogleRuntimeSecret
+                - !Ref Simply360LifecycleSecret
       Events:
         Work:
           Type: SQS
@@ -357,6 +380,16 @@ Resources:
 Outputs:
   ApiOrigin:
     Value: !Sub https://${PublicDomainName}
+  GoogleRuntimeSecretArn:
+    Description: Owner-managed Google credential container.
+    Value: !Ref GoogleRuntimeSecret
+  Simply360LifecycleSecretArn:
+    Description: Owner-managed lifecycle-key container.
+    Value: !Ref Simply360LifecycleSecret
+  GoogleOAuthRedirectUri:
+    Value: !Sub https://${PublicDomainName}/oauth/google/callback
+  GoogleNotificationEndpoint:
+    Value: !Sub https://${PublicDomainName}/events/google
   ApiFunctionArn:
     Value: !GetAtt ApiFunction.Arn
   WorkerFunctionArn:

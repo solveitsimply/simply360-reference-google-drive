@@ -389,7 +389,11 @@ Outputs:
   GoogleOAuthRedirectUri:
     Value: !Sub https://${PublicDomainName}/oauth/google/callback
   GoogleNotificationEndpoint:
-    Value: !Sub https://${PublicDomainName}/events/google
+    # Must equal the address the runtime registers with Google
+    # (src/google-http.ts: `${publicOrigin}/google/drive/notifications`) and the
+    # route the router serves (src/router.ts). Anything else silently
+    # misconfigures the Drive watch channel.
+    Value: !Sub https://${PublicDomainName}/google/drive/notifications
   ApiFunctionArn:
     Value: !GetAtt ApiFunction.Arn
   WorkerFunctionArn:

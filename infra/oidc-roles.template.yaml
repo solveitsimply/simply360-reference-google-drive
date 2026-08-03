@@ -88,7 +88,15 @@ Resources:
                   - lambda:DeleteEventSourceMapping
                   - lambda:GetEventSourceMapping
                   - lambda:UpdateEventSourceMapping
+                # Event source mappings have generated UUID ARNs, so AWS does
+                # not support resource-level scoping for these actions and the
+                # resource must stay '*'. The FunctionArn condition supplies the
+                # missing boundary: without it this role could delete ANY event
+                # source mapping in the account, not just this stack's.
                 Resource: '*'
+                Condition:
+                  StringLike:
+                    lambda:FunctionArn: arn:aws:lambda:us-east-1:*:function:Simply360ReferenceGoogleDriveDev-*
                 Condition:
                   ArnLike:
                     lambda:FunctionArn: arn:aws:lambda:us-east-1:*:function:Simply360ReferenceGoogleDriveDev-*

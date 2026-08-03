@@ -51,6 +51,17 @@ Using the user-level Developer Console/CLI and publisher OAuth:
    `EXTERNAL_BLUEPRINT_PACKAGE`.
 9. Simply360 OAuth redirect:
    `https://reference-drive.dev.simply360.app/oauth/simply360/callback`.
+   This is a **registered coordinate that is deliberately not hosted**. This
+   app never runs a Simply360 authorization-code exchange: it receives an
+   already-issued installation credential through `POST /installations`
+   (`registerInstallation`). The registered redirect URI exists because
+   `AppManifestOAuthClientSchema` requires at least one and because the
+   authorization-code 302 carries the code in its `Location` header, which the
+   installing operator reads directly — nothing needs to serve the path. The
+   router therefore has no `/oauth/simply360/callback` handler **on purpose**;
+   adding one would invent a credential path this app does not use. Contrast
+   `/oauth/google/callback`, which IS hosted because the Google leg is a real
+   authorization-code exchange this app performs.
 10. Setup URL:
     `https://reference-drive.dev.simply360.app/setup`.
 11. Lifecycle URL:

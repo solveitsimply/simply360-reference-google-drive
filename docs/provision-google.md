@@ -78,15 +78,16 @@ secret as sensitive.
 ## 6. Store credentials in the reference stack
 
 After the NonProd AWS role and secret exist, store one JSON value in the
-repository-scoped Secrets Manager path selected by the platform owner, for
-example:
+repository-scoped Secrets Manager path selected by the platform owner. These
+four key names are read verbatim by the runtime (`src/lambda.ts`) — a renamed
+key fails config loading at deploy time rather than at review:
 
 ```json
 {
-  "googleClientId": "<web-client-id>",
-  "googleClientSecret": "<web-client-secret>",
-  "googlePickerAppId": "<numeric-project-number>",
-  "googlePickerDeveloperKey": "<restricted-picker-key>"
+  "clientId": "<web-client-id>",
+  "clientSecret": "<web-client-secret>",
+  "pickerAppId": "<numeric-project-number>",
+  "pickerDeveloperKey": "<restricted-picker-key>"
 }
 ```
 

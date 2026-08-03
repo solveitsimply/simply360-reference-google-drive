@@ -1,0 +1,472 @@
+{
+  "schemaVersion": "simply360.public-contract-snapshot/v1",
+  "source": {
+    "id": "https://schemas.simply360.app/app-platform/v1/event-occurrence-v1.schema.json",
+    "sha256": "3ea2dc53020c00720446a5c86867e3d78e05328b9849e4dfbf05669288268a98"
+  },
+  "selectedEventTypes": [
+    "app.suspended",
+    "app.grant.revoked",
+    "app.uninstalled",
+    "app.dataExport.requested",
+    "app.dataDeletion.requested"
+  ],
+  "selectedVariantsSha256": "a8a2059cd54b649fd2a16967d7b64a41e7e9554ad144ffadeb0210e5df3a428b",
+  "variants": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "eventSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "eventType": {
+          "const": "app.suspended",
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "appSlug": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+              "type": "string"
+            },
+            "appVersion": {
+              "maxLength": 64,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "eventType": {
+              "const": "app.suspended",
+              "type": "string"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060\\u2066-\\u2069\\ufeff]*$",
+              "type": "string"
+            },
+            "integrationInstallationOperationSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventType",
+            "integrationInstallationOperationSimplyId",
+            "appSlug",
+            "appVersion",
+            "idempotencyKey"
+          ],
+          "type": "object"
+        },
+        "payloadSchemaId": {
+          "const": "simply360.event.app-lifecycle/v1",
+          "type": "string"
+        },
+        "payloadSchemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "teamIntegrationSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "teamSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "eventSimplyId",
+        "teamSimplyId",
+        "teamIntegrationSimplyId",
+        "eventType",
+        "protocolVersion",
+        "payloadSchemaId",
+        "payloadSchemaVersion",
+        "occurredAt",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "eventSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "eventType": {
+          "const": "app.grant.revoked",
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "appSlug": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+              "type": "string"
+            },
+            "appVersion": {
+              "maxLength": 64,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "eventType": {
+              "const": "app.grant.revoked",
+              "type": "string"
+            },
+            "grantSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060\\u2066-\\u2069\\ufeff]*$",
+              "type": "string"
+            },
+            "integrationInstallationOperationSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventType",
+            "integrationInstallationOperationSimplyId",
+            "appSlug",
+            "appVersion",
+            "idempotencyKey",
+            "grantSimplyId"
+          ],
+          "type": "object"
+        },
+        "payloadSchemaId": {
+          "const": "simply360.event.app-lifecycle/v1",
+          "type": "string"
+        },
+        "payloadSchemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "teamIntegrationSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "teamSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "eventSimplyId",
+        "teamSimplyId",
+        "teamIntegrationSimplyId",
+        "eventType",
+        "protocolVersion",
+        "payloadSchemaId",
+        "payloadSchemaVersion",
+        "occurredAt",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "eventSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "eventType": {
+          "const": "app.uninstalled",
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "appSlug": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+              "type": "string"
+            },
+            "appVersion": {
+              "maxLength": 64,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "eventType": {
+              "const": "app.uninstalled",
+              "type": "string"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060\\u2066-\\u2069\\ufeff]*$",
+              "type": "string"
+            },
+            "integrationInstallationOperationSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventType",
+            "integrationInstallationOperationSimplyId",
+            "appSlug",
+            "appVersion",
+            "idempotencyKey"
+          ],
+          "type": "object"
+        },
+        "payloadSchemaId": {
+          "const": "simply360.event.app-lifecycle/v1",
+          "type": "string"
+        },
+        "payloadSchemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "teamIntegrationSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "teamSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "eventSimplyId",
+        "teamSimplyId",
+        "teamIntegrationSimplyId",
+        "eventType",
+        "protocolVersion",
+        "payloadSchemaId",
+        "payloadSchemaVersion",
+        "occurredAt",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "eventSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "eventType": {
+          "const": "app.dataExport.requested",
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "appSlug": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+              "type": "string"
+            },
+            "appVersion": {
+              "maxLength": 64,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "eventType": {
+              "const": "app.dataExport.requested",
+              "type": "string"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060\\u2066-\\u2069\\ufeff]*$",
+              "type": "string"
+            },
+            "integrationInstallationOperationSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            },
+            "requestSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventType",
+            "integrationInstallationOperationSimplyId",
+            "appSlug",
+            "appVersion",
+            "idempotencyKey",
+            "requestSimplyId"
+          ],
+          "type": "object"
+        },
+        "payloadSchemaId": {
+          "const": "simply360.event.app-lifecycle/v1",
+          "type": "string"
+        },
+        "payloadSchemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "teamIntegrationSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "teamSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "eventSimplyId",
+        "teamSimplyId",
+        "teamIntegrationSimplyId",
+        "eventType",
+        "protocolVersion",
+        "payloadSchemaId",
+        "payloadSchemaVersion",
+        "occurredAt",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "eventSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "eventType": {
+          "const": "app.dataDeletion.requested",
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "appSlug": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+              "type": "string"
+            },
+            "appVersion": {
+              "maxLength": 64,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "eventType": {
+              "const": "app.dataDeletion.requested",
+              "type": "string"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060\\u2066-\\u2069\\ufeff]*$",
+              "type": "string"
+            },
+            "integrationInstallationOperationSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            },
+            "requestSimplyId": {
+              "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventType",
+            "integrationInstallationOperationSimplyId",
+            "appSlug",
+            "appVersion",
+            "idempotencyKey",
+            "requestSimplyId"
+          ],
+          "type": "object"
+        },
+        "payloadSchemaId": {
+          "const": "simply360.event.app-lifecycle/v1",
+          "type": "string"
+        },
+        "payloadSchemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "teamIntegrationSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        },
+        "teamSimplyId": {
+          "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "eventSimplyId",
+        "teamSimplyId",
+        "teamIntegrationSimplyId",
+        "eventType",
+        "protocolVersion",
+        "payloadSchemaId",
+        "payloadSchemaVersion",
+        "occurredAt",
+        "payload"
+      ],
+      "type": "object"
+    }
+  ]
+}

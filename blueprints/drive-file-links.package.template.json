@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "simply360.external-blueprint-package/v1",
+  "publisherSlug": "simply360",
+  "packageKey": "drive-file-links",
+  "semanticVersion": "1.0.0",
+  "displayName": "Google Drive File Links",
+  "summary": "Optional structural collection for team-visible Google Drive transfer and reconciliation status.",
+  "license": "Apache-2.0",
+  "support": {
+    "supportUrl": "https://github.com/solveitsimply/simply360-reference-google-drive",
+    "escalationEmail": "developers@simply360.app"
+  },
+  "compatibility": {
+    "minimumPlatformVersion": "1.0.0"
+  },
+  "dependencies": [],
+  "definition": {
+    "schemaVersion": "simply360.external-blueprint/v1",
+    "collections": [
+      {
+        "collectionKey": "drive-file-link",
+        "label": {
+          "en": "Google Drive file link"
+        },
+        "description": {
+          "en": "Team-visible metadata for one explicitly selected Google Drive transfer."
+        },
+        "lifecycleOwner": "INTEGRATION",
+        "recordLifecycle": "ARCHIVE_SUPPORTED",
+        "calculatedName": {
+          "kind": "FIELD",
+          "fieldKey": "display-name"
+        },
+        "fields": [
+          {
+            "fieldKey": "display-name",
+            "label": {
+              "en": "Display name"
+            },
+            "required": true,
+            "kind": "TEXT",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          {
+            "fieldKey": "direction",
+            "label": {
+              "en": "Direction"
+            },
+            "required": true,
+            "kind": "OPTION",
+            "options": [
+              {
+                "optionKey": "source",
+                "label": {
+                  "en": "Import from Drive"
+                }
+              },
+              {
+                "optionKey": "destination",
+                "label": {
+                  "en": "Export to Drive"
+                }
+              }
+            ]
+          },
+          {
+            "fieldKey": "status",
+            "label": {
+              "en": "Status"
+            },
+            "required": true,
+            "kind": "OPTION",
+            "options": [
+              {
+                "optionKey": "active",
+                "label": {
+                  "en": "Active"
+                }
+              },
+              {
+                "optionKey": "remote-missing",
+                "label": {
+                  "en": "Drive object missing"
+                }
+              },
+              {
+                "optionKey": "revoked",
+                "label": {
+                  "en": "Connection revoked"
+                }
+              }
+            ]
+          },
+          {
+            "fieldKey": "last-reconciled-at",
+            "label": {
+              "en": "Last reconciled at"
+            },
+            "required": false,
+            "kind": "DATE_TIME"
+          }
+        ],
+        "sharedContractKeys": []
+      }
+    ],
+    "smartCollections": [],
+    "dataViews": [
+      {
+        "dataViewKey": "drive-file-links",
+        "collectionKey": "drive-file-link",
+        "label": {
+          "en": "Google Drive file links"
+        },
+        "visibility": "INTERNAL",
+        "presentation": "TABLE",
+        "fieldKeys": ["display-name", "direction", "status", "last-reconciled-at"],
+        "sort": [
+          {
+            "fieldKey": "display-name",
+            "direction": "ASC"
+          }
+        ]
+      }
+    ],
+    "reports": [],
+    "labels": [],
+    "sharedCollectionContracts": [],
+    "mappings": [],
+    "options": [],
+    "lifecycle": [
+      {
+        "resourceType": "COLLECTION",
+        "collectionKey": "drive-file-link",
+        "owner": "INTEGRATION",
+        "uninstallBehavior": "PROMPT_SOFT_DELETE"
+      },
+      {
+        "resourceType": "DATA_VIEW",
+        "dataViewKey": "drive-file-links",
+        "owner": "INTEGRATION",
+        "uninstallBehavior": "PROMPT_SOFT_DELETE"
+      }
+    ]
+  },
+  "definitionSha256": "__DEFINITION_SHA256__",
+  "provenance": {
+    "sourceRepository": "https://github.com/solveitsimply/simply360-reference-google-drive",
+    "sourceCommit": "__SOURCE_COMMIT__"
+  }
+}

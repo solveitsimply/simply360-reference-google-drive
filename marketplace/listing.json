@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "simply360.marketplace-listing/v1",
+  "appSlug": "simply360-reference-google-drive",
+  "categories": ["FILES_AND_CONTENT"],
+  "defaultLocale": "en",
+  "localized": {
+    "en": {
+      "name": "Simply360 Reference Files for Google Drive",
+      "summary": "Move explicitly selected files between Simply360 and Google Drive.",
+      "description": "A public-boundary reference app for FILE_SOURCE and FILE_DESTINATION. It requests only drive.file, never turns personal Drive into primary storage, and keeps each installation isolated.",
+      "highlights": [
+        "Explicit Google Picker file and folder selection",
+        "Checksum-bound import and resumable export",
+        "Change notifications, reconciliation, revocation, and uninstall"
+      ]
+    }
+  },
+  "media": [
+    {
+      "type": "ICON",
+      "path": "marketplace/media/icon.svg",
+      "alt": {
+        "en": "Interlocking Simply360 and file shapes for the Google Drive reference app"
+      },
+      "sortOrder": 0
+    }
+  ]
+}

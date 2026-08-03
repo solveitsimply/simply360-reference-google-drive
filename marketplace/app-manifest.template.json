@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "simply360.app-manifest/v1",
+  "app": {
+    "slug": "simply360-reference-google-drive",
+    "semanticVersion": "1.0.0-beta.1",
+    "displayName": "Simply360 Reference Files for Google Drive",
+    "summary": "Import explicitly selected Google Drive files and export Simply360 files to an explicitly selected Drive folder.",
+    "supportUrl": "https://github.com/solveitsimply/simply360-reference-google-drive",
+    "privacyUrl": "https://github.com/solveitsimply/simply360-reference-google-drive/blob/dev/docs/privacy.md"
+  },
+  "oauth": {
+    "accountBindingModes": ["team"],
+    "perUserLinkMultiplicity": "ONE_PER_USER",
+    "clients": [
+      {
+        "clientKey": "reference-server",
+        "clientType": "SERVER",
+        "tokenEndpointAuthMethod": "CLIENT_SECRET_BASIC",
+        "grantModes": ["teamInstallation"],
+        "redirectUris": ["https://reference-drive.dev.simply360.app/oauth/simply360/callback"],
+        "scopes": ["offline_access", "files:read", "files:write"],
+        "audience": "urn:simply360:public-api",
+        "resource": "urn:simply360:team-api"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "capabilityKey": "FILE_SOURCE",
+      "registryVersion": 1,
+      "configuration": {}
+    },
+    {
+      "capabilityKey": "FILE_DESTINATION",
+      "registryVersion": 1,
+      "configuration": {}
+    },
+    {
+      "capabilityKey": "EXTERNAL_BLUEPRINT_PACKAGE",
+      "registryVersion": 1,
+      "configuration": {}
+    }
+  ],
+  "eventDestinations": [],
+  "remoteActions": [],
+  "remoteTriggers": [],
+  "blueprintPackages": [
+    {
+      "packageKey": "drive-file-links",
+      "version": "1.0.0",
+      "sha256": "__BLUEPRINT_SHA256__",
+      "required": false,
+      "installOrder": 0
+    }
+  ],
+  "dataAccess": {
+    "classifications": ["TEAM_OPERATIONAL", "TEAM_FILE_CONTENT"],
+    "purpose": "Transfer only explicitly selected files between Google Drive and Simply360 and retain stable reconciliation metadata.",
+    "retention": "UNTIL_UNINSTALL_EXPORT_DECISION",
+    "exportBehavior": "AVAILABLE_ON_REQUEST",
+    "deletionBehavior": "AFTER_EXPORT_DECISION"
+  },
+  "lifecycle": {
+    "setupLaunchUrl": "https://reference-drive.dev.simply360.app/setup",
+    "notifications": {
+      "endpointKey": "lifecycle",
+      "exactUrl": "https://reference-drive.dev.simply360.app/simply360/lifecycle",
+      "protocolVersion": 1,
+      "eventTypes": [
+        "app.suspended",
+        "app.grant.revoked",
+        "app.uninstalled",
+        "app.dataExport.requested",
+        "app.dataDeletion.requested"
+      ]
+    }
+  },
+  "support": {
+    "owner": "PUBLISHER",
+    "escalationEmail": "developers@simply360.app",
+    "documentationUrl": "https://github.com/solveitsimply/simply360-reference-google-drive",
+    "incidentUrl": "https://github.com/solveitsimply/simply360-reference-google-drive/security/advisories",
+    "deprecationPolicyUrl": "https://github.com/solveitsimply/simply360-reference-google-drive/blob/dev/docs/support-and-deprecation.md"
+  },
+  "provenance": {
+    "sourceRepository": "https://github.com/solveitsimply/simply360-reference-google-drive",
+    "sourceCommit": "__SOURCE_COMMIT__"
+  }
+}

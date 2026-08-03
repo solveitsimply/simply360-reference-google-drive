@@ -1,0 +1,402 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Dev-only runtime for the Simply360 Google Drive reference integration.
+
+Parameters:
+  PublicDomainName:
+    Type: String
+    Default: reference-drive.dev.simply360.app
+    AllowedPattern: '^reference-drive\.dev\.simply360\.app$'
+  CertificateArn:
+    Type: String
+    AllowedPattern: '^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[0-9a-f-]+$'
+  HostedZoneId:
+    Type: String
+    AllowedPattern: '^Z[A-Z0-9]+$'
+  Simply360TransferOrigins:
+    Type: String
+    Description: Comma-separated exact HTTPS origins read from the published dev file API contract. No defaults are safe.
+    AllowedPattern: '^https://[^, /?#]+(?::[0-9]+)?(?:,https://[^, /?#]+(?::[0-9]+)?)*$'
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 512
+    Timeout: 30
+    Tracing: Active
+    Environment:
+      Variables:
+        REFERENCE_ENVIRONMENT: dev
+        PUBLIC_ORIGIN: !Sub https://${PublicDomainName}
+        SIMPLY360_API_BASE_URL: https://api.dev.simply360.app
+        SIMPLY360_TRANSFER_ORIGINS: !Ref Simply360TransferOrigins
+        GOOGLE_OAUTH_SCOPE: https://www.googleapis.com/auth/drive.file
+        GOOGLE_SECRET_ARN: !Ref GoogleRuntimeSecret
+        SIMPLY360_SECRET_ARN: !Ref Simply360LifecycleSecret
+        STATE_TABLE_NAME: !Ref StateTable
+        IDEMPOTENCY_TABLE_NAME: !Ref IdempotencyTable
+        AUTHORITY_TABLE_NAME: !Ref AuthorityTable
+        OUTBOX_TABLE_NAME: !Ref OutboxTable
+        WORK_QUEUE_URL: !Ref WorkQueue
+        ENABLE_INSTALLATION_BOOTSTRAP: 'false'
+
+Resources:
+  # No SecretString is declared: the owner writes provider credentials directly
+  # into these containers only after reviewing the stack output ARNs.
+  GoogleRuntimeSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: s360/reference-drive/dev/google
+      Description: Google Drive reference-dev OAuth and Picker credentials; owner-managed.
+      Tags:
+        - Key: simply360:reference-repository
+          Value: simply360-reference-google-drive
+        - Key: simply360:environment
+          Value: dev
+
+  Simply360LifecycleSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: s360/reference-drive/dev/simply360
+      Description: Simply360 lifecycle webhook signing keys; owner-managed.
+      Tags:
+        - Key: simply360:reference-repository
+          Value: simply360-reference-google-drive
+        - Key: simply360:environment
+          Value: dev
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      DisableExecuteApiEndpoint: true
+      FailOnWarnings: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiAccessLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLength":"$context.responseLength","integrationError":"$context.integrationErrorMessage"}'
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-api
+      CodeUri: ../dist/
+      Handler: lambda.handler
+      ReservedConcurrentExecutions: 4
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Sid: StateTables
+              Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt StateTable.Arn
+                - !GetAtt IdempotencyTable.Arn
+                - !GetAtt AuthorityTable.Arn
+                - !GetAtt OutboxTable.Arn
+                - !Sub ${OutboxTable.Arn}/index/StatusCreatedAtIndex
+            - Sid: DispatchWork
+              Effect: Allow
+              Action: sqs:SendMessage
+              Resource: !GetAtt WorkQueue.Arn
+            - Sid: ReadExactSecrets
+              Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource:
+                - !Ref GoogleRuntimeSecret
+                - !Ref Simply360LifecycleSecret
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+        OutboxRecovery:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: true
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-worker
+      CodeUri: ../dist/
+      Handler: lambda.handler
+      ReservedConcurrentExecutions: 2
+      Timeout: 900
+      MemorySize: 1024
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Sid: ReadWriteInstallationState
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+              Resource: !GetAtt StateTable.Arn
+            - Sid: RunIdempotentWork
+              Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt IdempotencyTable.Arn
+            - Sid: CompleteOutboxWork
+              Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt OutboxTable.Arn
+            - Sid: ConsumeWork
+              Effect: Allow
+              Action:
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+                - sqs:ReceiveMessage
+              Resource: !GetAtt WorkQueue.Arn
+            - Sid: ReadExactSecrets
+              Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource:
+                - !Ref GoogleRuntimeSecret
+                - !Ref Simply360LifecycleSecret
+      Events:
+        Work:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt WorkQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig:
+              MaximumConcurrency: 2
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-api
+      RetentionInDays: 7
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-worker
+      RetentionInDays: 7
+  ApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/apigateway/${AWS::StackName}
+      RetentionInDays: 7
+
+  StateTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub ${AWS::StackName}-state
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}]
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      SSESpecification: {SSEEnabled: true}
+
+  IdempotencyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-idempotency
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}]
+      TimeToLiveSpecification: {AttributeName: expiresAtEpoch, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      SSESpecification: {SSEEnabled: true}
+
+  AuthorityTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-authority
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}]
+      TimeToLiveSpecification: {AttributeName: expiresAtEpoch, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      SSESpecification: {SSEEnabled: true}
+
+  OutboxTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-outbox
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: pk, AttributeType: S}
+        - {AttributeName: status, AttributeType: S}
+        - {AttributeName: createdAt, AttributeType: S}
+      KeySchema: [{AttributeName: pk, KeyType: HASH}]
+      GlobalSecondaryIndexes:
+        - IndexName: StatusCreatedAtIndex
+          KeySchema:
+            - {AttributeName: status, KeyType: HASH}
+            - {AttributeName: createdAt, KeyType: RANGE}
+          Projection: {ProjectionType: KEYS_ONLY}
+      TimeToLiveSpecification: {AttributeName: expiresAtEpoch, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      SSESpecification: {SSEEnabled: true}
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-work-dlq
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
+  WorkQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-work
+      KmsMasterKeyId: alias/aws/sqs
+      VisibilityTimeout: 5400
+      MessageRetentionPeriod: 345600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  ApiDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref PublicDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref CertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref HttpApi
+      DomainName: !Ref ApiDomain
+      Stage: '$default'
+  ApiDns:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref PublicDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApiDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ApiDomain.RegionalHostedZoneId
+
+  DlqDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reference Drive DLQ contains work.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt DeadLetterQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+  WorkAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Oldest queued reference Drive work is delayed.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt WorkQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 900
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reference Drive API Lambda is erroring.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref ApiFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 2
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+  ApiThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reference Drive API Lambda is throttling.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{Name: FunctionName, Value: !Ref ApiFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+  WorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reference Drive worker Lambda is erroring before partial batch handling.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref WorkerFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+  WorkerThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reference Drive worker Lambda is throttling.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{Name: FunctionName, Value: !Ref WorkerFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApiOrigin:
+    Value: !Sub https://${PublicDomainName}
+  GoogleRuntimeSecretArn:
+    Description: Owner-managed Google credential container.
+    Value: !Ref GoogleRuntimeSecret
+  Simply360LifecycleSecretArn:
+    Description: Owner-managed lifecycle-key container.
+    Value: !Ref Simply360LifecycleSecret
+  GoogleOAuthRedirectUri:
+    Value: !Sub https://${PublicDomainName}/oauth/google/callback
+  GoogleNotificationEndpoint:
+    # Must equal the address the runtime registers with Google
+    # (src/google-http.ts: `${publicOrigin}/google/drive/notifications`) and the
+    # route the router serves (src/router.ts). Anything else silently
+    # misconfigures the Drive watch channel.
+    Value: !Sub https://${PublicDomainName}/google/drive/notifications
+  ApiFunctionArn:
+    Value: !GetAtt ApiFunction.Arn
+  WorkerFunctionArn:
+    Value: !GetAtt WorkerFunction.Arn
+  WorkQueueArn:
+    Value: !GetAtt WorkQueue.Arn
